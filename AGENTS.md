@@ -262,7 +262,7 @@ This project supports multiple AI coding agents:
 | Claude Code | `CLAUDE.md` | `.claude/skills/` |
 | Codex (OpenAI) | `AGENTS.md` (this file) | `.agents/skills/` → `.claude/skills/` |
 | OpenClaw | `AGENTS.md` (this file) | `.agents/skills/` → `.claude/skills/` |
-| Cursor | `.cursorrules` (wrapper → read this file) | via `.cursor/rules/` |
+| Cursor | `.cursorrules` (wrapper → read this file) | — |
 | Windsurf | `.windsurfrules` (wrapper → read this file) | N/A |
 | GitHub Copilot | `.github/copilot-instructions.md` (wrapper → read this file) | N/A |
 | Cline | `.clinerules` (wrapper → read this file) | `.claude/skills/` (native) |
