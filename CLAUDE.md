@@ -264,3 +264,19 @@ API key 说明：
 - Python 3.10+，运行环境：conda `scholaraio`
 - 测试：`python -m pytest tests/ -v`
 
+## 多 Agent 兼容
+
+本项目同时支持多种 AI coding agent。`CLAUDE.md` 是 Claude Code 专用指令，`AGENTS.md` 是面向 Codex / OpenClaw 等其他 agent 的通用指令（内容等价，语言中性）。
+
+| Agent | 指令文件 | Skills |
+|-------|---------|--------|
+| Claude Code | `CLAUDE.md`（本文件） | `.claude/skills/` |
+| Codex (OpenAI) | `AGENTS.md` | `.agents/skills/` → `.claude/skills/` |
+| OpenClaw | `AGENTS.md` | `.agents/skills/` → `.claude/skills/` |
+| Cursor | `.cursorrules`（wrapper） | — |
+| Windsurf | `.windsurfrules`（wrapper） | — |
+| GitHub Copilot | `.github/copilot-instructions.md`（wrapper） | — |
+| Cline | `.clinerules`（wrapper） | `.claude/skills/`（原生支持） |
+
+Skills 采用 [AgentSkills.io](https://agentskills.io) 开放标准（`SKILL.md` 格式）。规范位置为 `.claude/skills/`，`.agents/skills/` 为符号链接，供跨 agent 发现。
+
