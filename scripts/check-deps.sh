@@ -30,12 +30,13 @@ find_pip() {
 if command -v scholaraio >/dev/null 2>&1; then
     # Already installed — ensure global config exists
     if [ ! -f "$GLOBAL_CFG" ]; then
-        # CLI exists but no global config — create one so plugin mode works
         mkdir -p "$GLOBAL_DIR"
         if [ -f "$PLUGIN_ROOT/config.yaml" ]; then
             cp "$PLUGIN_ROOT/config.yaml" "$GLOBAL_CFG"
         fi
     fi
+    # Ensure data directories exist (may be missing after config-only setup)
+    scholaraio setup check --lang en >/dev/null 2>&1 || true
     exit 0
 fi
 
@@ -56,11 +57,26 @@ if [ -z "$PIP" ]; then
 fi
 
 # 2a. Install the Python package (core only — fast, <30s)
+# Use --user when not inside a virtualenv to avoid permission errors
+USER_FLAG=""
+if [ -z "$VIRTUAL_ENV" ] && [ -z "$CONDA_PREFIX" ]; then
+    USER_FLAG="--user"
+fi
+
 echo "[ScholarAIO] Installing scholaraio..."
 if [ -f "$PLUGIN_ROOT/pyproject.toml" ]; then
-    $PIP install "$PLUGIN_ROOT" 2>&1 | tail -3 || true
+    $PIP install $USER_FLAG "$PLUGIN_ROOT" 2>&1 | tail -3 || true
 else
-    $PIP install "git+https://github.com/ZimoLiao/scholaraio.git" 2>&1 | tail -3 || true
+    echo "[ScholarAIO] WARNING: installing from unpinned GitHub source"
+    $PIP install $USER_FLAG "git+https://github.com/ZimoLiao/scholaraio.git" 2>&1 | tail -3 || true
+fi
+
+if ! command -v scholaraio >/dev/null 2>&1; then
+    # --user install may put binary in ~/.local/bin which is not on PATH
+    USER_BIN="${HOME}/.local/bin"
+    if [ -x "$USER_BIN/scholaraio" ]; then
+        export PATH="$USER_BIN:$PATH"
+    fi
 fi
 
 if ! command -v scholaraio >/dev/null 2>&1; then
@@ -68,6 +84,9 @@ if ! command -v scholaraio >/dev/null 2>&1; then
     echo "[ScholarAIO] Auto-install failed. Please install manually:"
     echo "  $PIP install git+https://github.com/ZimoLiao/scholaraio.git"
     echo "  After installing, run: scholaraio setup"
+    if [ -n "$USER_FLAG" ]; then
+        echo "  (You may need to add ~/.local/bin to your PATH)"
+    fi
     echo ""
     exit 0
 fi

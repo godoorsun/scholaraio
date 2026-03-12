@@ -346,9 +346,12 @@ def _find_config_file() -> Path | None:
             break
         current = parent
     # 2. Global fallback: ~/.scholaraio/config.yaml (plugin mode)
-    global_cfg = Path.home() / ".scholaraio" / "config.yaml"
-    if global_cfg.exists():
-        return global_cfg
+    try:
+        global_cfg = Path.home() / ".scholaraio" / "config.yaml"
+        if global_cfg.exists():
+            return global_cfg
+    except (RuntimeError, OSError):
+        pass
     return None
 
 
