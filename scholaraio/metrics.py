@@ -209,9 +209,10 @@ class MetricsStore:
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         sql = f"SELECT * FROM events{where} ORDER BY id DESC LIMIT ?"
         params.append(limit)
-        cur = self._conn.execute(sql, params)
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        with self._lock:
+            cur = self._conn.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     def summary(self, session_id: str | None = None) -> dict:
         """汇总 LLM token 用量。
@@ -235,7 +236,8 @@ class MetricsStore:
             f"COALESCE(SUM(duration_s), 0) "
             f"FROM events {clause}"
         )
-        row = self._conn.execute(sql, params).fetchone()
+        with self._lock:
+            row = self._conn.execute(sql, params).fetchone()
         return {
             "call_count": row[0],
             "total_tokens_in": row[1],
@@ -244,7 +246,8 @@ class MetricsStore:
         }
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
 
 # ============================================================================
