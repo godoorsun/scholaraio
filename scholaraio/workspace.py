@@ -31,8 +31,9 @@ def _read(ws_dir: Path) -> list[dict]:
     try:
         raw = json.loads(pj.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
-        _log.error("papers.json 格式损坏 (%s): %s", pj, e)
-        return []
+        raise RuntimeError(f"papers.json 格式损坏，操作中止: {pj}") from e
+    if not isinstance(raw, list):
+        raise RuntimeError(f"papers.json 格式异常（期望 list，实际 {type(raw).__name__}）: {pj}")
     # Filter out malformed entries missing required "id" field
     valid = [e for e in raw if isinstance(e, dict) and "id" in e]
     if len(valid) < len(raw):
