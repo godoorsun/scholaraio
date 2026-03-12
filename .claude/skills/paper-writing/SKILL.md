@@ -33,7 +33,7 @@ description: Assist with writing sections of a research paper (Introduction, Rel
 2. 引用工作区论文建立研究脉络：
    ```bash
    scholaraio ws search <name> "<背景关键词>"
-   scholaraio show <dir_name> --level 2      # 摘要
+   scholaraio show <dir_name> --layer 2      # 摘要
    ```
 3. 明确指出现有工作的不足（research gap）
 4. 阐述本文贡献
@@ -48,7 +48,7 @@ description: Assist with writing sections of a research paper (Introduction, Rel
 2. 从工作区论文中找到可对比的方法：
    ```bash
    scholaraio ws search <name> "<方法关键词>"
-   scholaraio show <dir_name> --level 4      # 读全文了解方法细节
+   scholaraio show <dir_name> --layer 4      # 读全文了解方法细节
    ```
 3. 确保符号定义一致、公式推导完整
 4. **公式与图表**：读取参考论文中的数学推导（LaTeX）和方法示意图（`images/`），对比本文方法的异同，确保描述准确
@@ -58,7 +58,7 @@ description: Assist with writing sections of a research paper (Introduction, Rel
 2. 从工作区中检索可对比的基线结果：
    ```bash
    scholaraio ws search <name> "<实验条件>"
-   scholaraio show <dir_name> --level 3      # 结论
+   scholaraio show <dir_name> --layer 3      # 结论
    ```
 3. **读图对比**：读取参考论文中的结果图表（`data/papers/<dir>/images/`），与用户的实验结果做定性/定量对比
 4. **编写代码验证**：用 Python 做数据分析、统计检验、可视化——用计算结果支撑 Discussion 中的论点

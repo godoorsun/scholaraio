@@ -87,8 +87,14 @@ def parse_year_range(year: str) -> tuple[int | None, int | None]:
     if "-" in year:
         parts = year.split("-", 1)
         start, end = parts[0].strip(), parts[1].strip()
-        return (int(start) if start else None, int(end) if end else None)
-    y = int(year)
+        try:
+            return (int(start) if start else None, int(end) if end else None)
+        except ValueError as e:
+            raise ValueError(f"无法解析年份范围: {year!r}（格式: 2020, 2020-2024, 2020-, -2024）") from e
+    try:
+        y = int(year)
+    except ValueError as e:
+        raise ValueError(f"无法解析年份: {year!r}（格式: 2020, 2020-2024, 2020-, -2024）") from e
     return (y, y)
 
 

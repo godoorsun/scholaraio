@@ -580,11 +580,12 @@ def build_topics(
             )
 
         overview = get_topic_overview(model)
-        n_outliers = sum(1 for t in overview if t.get("topic_id") == -1)
+        topics_list = getattr(model, "_topics", None) or getattr(model, "topics_", [])
+        n_outliers = sum(1 for t in topics_list if t == -1)
         return json.dumps({
-            "topics": len(overview) - (1 if n_outliers else 0),
+            "topics": len(overview),
             "outliers": n_outliers,
-            "total_papers": sum(t.get("count", 0) for t in overview),
+            "total_papers": sum(t.get("count", 0) for t in overview) + n_outliers,
         })
     except Exception as e:
         _log.exception("build_topics failed")

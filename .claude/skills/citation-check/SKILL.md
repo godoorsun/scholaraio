@@ -41,7 +41,7 @@ scholaraio usearch "<关键词 from title>" --top 5
 **Layer 3 — 内容一致性**
 对于关键引用（支撑核心论点的），加载 L2-L3 检查：
 ```bash
-scholaraio show <dir_name> --level 3
+scholaraio show <dir_name> --layer 3
 ```
 验证：文本中对该论文的描述是否与论文实际内容一致？是否存在过度解读或断章取义？
 

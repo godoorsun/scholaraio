@@ -679,8 +679,6 @@ def reduce_topics_to(model: "BERTopic", nr_topics: int, save_path: Path | None =
     Returns:
         合并后的 BERTopic 模型实例。
     """
-    import numpy as np
-
     docs = getattr(model, "_docs", [])
     if not docs:
         raise ValueError("模型中缺少文档数据，无法合并主题")
@@ -724,8 +722,6 @@ def merge_topics_by_ids(
     Returns:
         合并后的 BERTopic 模型实例。
     """
-    import numpy as np
-
     docs = getattr(model, "_docs", [])
     if not docs:
         raise ValueError("模型中缺少文档数据，无法合并主题")

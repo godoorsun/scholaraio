@@ -259,7 +259,7 @@ def step_extract(ctx: InboxCtx) -> StepResult:
 
     extractor = get_extractor(ctx.cfg)
     meta = extractor.extract(ctx.md_path)
-    ui(f"Title: {meta.title[:80]}")
+    ui(f"Title: {(meta.title or '?')[:80]}")
     ui(f"Author: {meta.first_author_lastname or '?'} | Year: {meta.year or '?'} | DOI: {meta.doi or 'none'}")
     ctx.meta = meta
     return StepResult.OK
@@ -1480,16 +1480,14 @@ def _update_registry(cfg, meta, dir_name: str) -> None:
     if not db_path.exists():
         return
     try:
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            """INSERT OR REPLACE INTO papers_registry
-               (id, dir_name, title, doi, year, first_author)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (meta.id, dir_name, meta.title or "", meta.doi or "",
-             meta.year, meta.first_author_lastname or ""),
-        )
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO papers_registry
+                   (id, dir_name, title, doi, year, first_author)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (meta.id, dir_name, meta.title or "", meta.doi or "",
+                 meta.year, meta.first_author_lastname or ""),
+            )
     except Exception as e:
         _log.debug("failed to update papers_registry: %s", e)
 

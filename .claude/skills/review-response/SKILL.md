@@ -33,8 +33,8 @@ description: Draft point-by-point responses to peer review comments. Locates sup
 3. 在工作区文献中搜索支撑证据：
    ```bash
    scholaraio ws search <name> "<审稿人关注的关键词>"
-   scholaraio show <dir_name> --level 3      # 读结论找证据
-   scholaraio show <dir_name> --level 4      # 必要时读全文
+   scholaraio show <dir_name> --layer 3      # 读结论找证据
+   scholaraio show <dir_name> --layer 4      # 必要时读全文
    ```
 4. 从引用图谱中找额外支撑：
    ```bash

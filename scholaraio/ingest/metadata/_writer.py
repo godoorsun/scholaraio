@@ -71,7 +71,7 @@ def metadata_to_dict(meta: PaperMetadata) -> dict:
         d["ids"]["semantic_scholar_url"] = f"https://www.semanticscholar.org/paper/{meta.s2_paper_id}"
     if meta.openalex_id:
         d["ids"]["openalex"] = meta.openalex_id
-        d["ids"]["openalex_url"] = meta.openalex_id.replace("https://openalex.org/", "https://openalex.org/works/") if "openalex.org" in meta.openalex_id else meta.openalex_id
+        d["ids"]["openalex_url"] = meta.openalex_id.replace("https://openalex.org/", "https://openalex.org/works/") if "openalex.org" in meta.openalex_id and "/works/" not in meta.openalex_id else meta.openalex_id
     return d
 
 
@@ -311,12 +311,10 @@ def _update_registry_dir_name(db_path: Path, uuid: str, new_dir_name: str) -> No
     if not db_path.exists():
         return
     try:
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "UPDATE papers_registry SET dir_name = ? WHERE id = ?",
-            (new_dir_name, uuid),
-        )
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE papers_registry SET dir_name = ? WHERE id = ?",
+                (new_dir_name, uuid),
+            )
     except Exception as e:
         _log.debug("failed to update papers_registry after rename: %s", e)

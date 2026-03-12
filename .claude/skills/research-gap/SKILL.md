@@ -43,7 +43,7 @@ scholaraio topics --topic <ID>                # 各主题下的论文
 #### 维度 3：方法论对比
 扫描工作区论文的方法部分（L3-L4），绘制方法论矩阵：
 ```bash
-scholaraio show <dir_name> --level 3          # 结论中通常提及方法
+scholaraio show <dir_name> --layer 3          # 结论中通常提及方法
 ```
 - 哪些方法被广泛使用？
 - 哪些方法组合尚未被尝试？
@@ -62,7 +62,7 @@ scholaraio citing "<id>"                      # 被引论文
 #### 维度 5：论文自述的 Future Work
 加载工作区中高引论文的 L3（结论），提取作者自己提出的未来方向：
 ```bash
-scholaraio show <dir_name> --level 3
+scholaraio show <dir_name> --layer 3
 ```
 这些 future work 是否已有人做了？交叉搜索验证：
 ```bash

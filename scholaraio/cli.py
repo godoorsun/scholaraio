@@ -581,7 +581,7 @@ def cmd_shared_refs(args: argparse.Namespace, cfg) -> None:
         meta = read_meta(paper_d)
         paper_uuids.append(meta.get("id", ""))
 
-    min_shared = args.min or 2
+    min_shared = args.min if args.min is not None else 2
     pids = _resolve_ws_paper_ids(args, cfg)
     results = get_shared_references(paper_uuids, cfg.index_db, min_shared=min_shared, paper_ids=pids)
     if not results:

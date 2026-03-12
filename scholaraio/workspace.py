@@ -28,14 +28,27 @@ def _read(ws_dir: Path) -> list[dict]:
     pj = _papers_json(ws_dir)
     if not pj.exists():
         return []
-    return json.loads(pj.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(pj.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"papers.json 格式损坏，操作中止: {pj}") from e
+    if not isinstance(raw, list):
+        raise RuntimeError(f"papers.json 格式异常（期望 list，实际 {type(raw).__name__}）: {pj}")
+    # Filter out malformed entries missing required "id" field
+    valid = [e for e in raw if isinstance(e, dict) and "id" in e]
+    if len(valid) < len(raw):
+        _log.warning("papers.json 中有 %d 条缺少 id 的记录已跳过 (%s)", len(raw) - len(valid), pj)
+    return valid
 
 
 def _write(ws_dir: Path, entries: list[dict]) -> None:
-    _papers_json(ws_dir).write_text(
+    pj = _papers_json(ws_dir)
+    tmp = pj.with_suffix(".json.tmp")
+    tmp.write_text(
         json.dumps(entries, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    tmp.replace(pj)
 
 
 # ============================================================================
