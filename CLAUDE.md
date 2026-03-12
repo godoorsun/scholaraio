@@ -46,7 +46,7 @@ MinerU 解析的 Markdown 保留了高质量公式（LaTeX）和图片附件（`
 | `ingest/metadata/` | API 查询补全（Crossref / S2 / OpenAlex）、JSON 输出、文件重命名 |
 | `ingest/pipeline.py` | 可组合入库流水线（DOI 去重 + pending + 外部导入批量转换） |
 | `index.py` | FTS5 全文检索 + papers_registry + citations 引用图谱 |
-| `vectors.py` | Qwen3 语义向量 + FAISS 增量索引 |
+| `vectors.py` | Qwen3 语义向量 + FAISS 增量索引 + GPU 自适应批处理 |
 | `topics.py` | BERTopic 主题建模 + 6 种 HTML 可视化 |
 | `loader.py` | L1-L4 分层加载 + enrich_toc + enrich_l3 |
 | `explore.py` | 多维文献探索（OpenAlex 多维过滤 + FTS5 + 语义 + 融合检索 + 主题，数据隔离在 `data/explore/`） |
@@ -99,6 +99,17 @@ import-endnote / import-zotero — 外部文献管理工具导入（完整 pipel
        → 批量 PDF→MD（云端 batch API，批次大小: config ingest.mineru_batch_size）
        → abstract backfill + toc + l3 提取 + embed + index
 ```
+
+### GPU 自适应批处理
+
+`vectors.py` 的嵌入流程会根据 GPU 显存自动调整 batch size：
+
+1. **首次 Profile**（~10 秒）：从 64 tokens 开始逐步翻倍，测量每个长度的增量显存，直到 OOM
+2. **缓存复用**：结果写入 `~/.cache/scholaraio/gpu_profile.json`，key 为 `模型名::GPU名`，换 GPU/模型自动重测
+3. **运行时分桶**：按 token 长度将文本分组（64/128/.../16384），每组根据 profile 插值算出最优 batch_size
+4. **OOM 兜底**：遇 OOM 自动减半 batch_size 重试，bs=1 仍 OOM 则降级 CPU
+
+所有调用 `_embed_batch()` 的路径（主库 embed、explore embed、BERTopic 的 QwenEmbedder）均自动受益。
 
 ### 分层加载设计（L1-L4）
 

@@ -19,6 +19,7 @@ import json
 import os
 import sqlite3
 import struct
+import time
 from pathlib import Path
 import logging
 from typing import TYPE_CHECKING
@@ -145,6 +146,203 @@ def _resolve_model_path(model_name: str, cache_dir: str, source: str) -> str | N
     return None
 
 
+
+# ============================================================================
+#  GPU profiling & adaptive batching
+# ============================================================================
+
+_GPU_PROFILE_FILE = Path("~/.cache/scholaraio/gpu_profile.json").expanduser()
+
+
+def _profile_cache_key(model_name: str, gpu_name: str) -> str:
+    return f"{model_name}::{gpu_name}"
+
+
+def _run_profile(model, cfg: Config | None = None) -> dict:
+    """Profile GPU memory per sample at various sequence lengths.
+
+    Generates dummy texts at several token counts, encodes one at a time,
+    and records peak GPU memory.  Results are cached to disk so this only
+    runs once per model + GPU combination.
+
+    Returns:
+        ``{"gpu_total_bytes": int, "per_sample": {token_len: bytes, ...},
+           "model_name": str, "gpu_name": str, "profiled_at": str}``
+    """
+    import torch
+
+    if not torch.cuda.is_available():
+        return {}
+
+    device = next(model.parameters() if hasattr(model, "parameters")
+                  else model[0].parameters()).device
+    if device.type != "cuda":
+        return {}
+
+    gpu_props = torch.cuda.get_device_properties(device)
+    gpu_name = gpu_props.name
+    gpu_total = gpu_props.total_memory
+
+    # Use model's tokenizer to craft texts of exact token lengths
+    tokenizer = model.tokenizer
+
+    per_sample: dict[int, int] = {}
+    filler = "turbulence flow particle dynamics simulation "
+
+    # Measure baseline: model weights already on GPU
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats(device)
+    tiny = filler[:20]
+    model.encode([tiny], normalize_embeddings=True, batch_size=1)
+    baseline = torch.cuda.memory_allocated(device)
+
+    model_name = (
+        cfg.embed.model if cfg is not None else "Qwen/Qwen3-Embedding-0.6B"
+    )
+
+    _log.info("[gpu-profile] Profiling GPU memory for %s on %s "
+              "(baseline=%.0f MB, total=%.0f MB) ...",
+              model_name, gpu_name, baseline / 1024**2, gpu_total / 1024**2)
+
+    # Probe from 64 tokens, doubling each time, until OOM
+    tgt_tokens = 64
+    max_tokens = getattr(model, "max_seq_length", 32768) or 32768
+    while tgt_tokens <= max_tokens:
+        raw = filler * (tgt_tokens // 4 + 10)
+        ids = tokenizer.encode(raw)[:tgt_tokens]
+        text = tokenizer.decode(ids, skip_special_tokens=True)
+
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats(device)
+
+        try:
+            model.encode([text], normalize_embeddings=True, batch_size=1)
+            peak = torch.cuda.max_memory_allocated(device)
+            incremental = peak - baseline
+            per_sample[tgt_tokens] = incremental
+            _log.info("[gpu-profile]   tokens=%5d  incremental=%6.0f MB  (peak=%.0f MB)",
+                      tgt_tokens, incremental / 1024**2, peak / 1024**2)
+        except torch.cuda.OutOfMemoryError:
+            _log.info("[gpu-profile]   tokens=%5d  OOM — max single-sample capacity found",
+                      tgt_tokens)
+            torch.cuda.empty_cache()
+            break
+
+        tgt_tokens *= 2
+
+    return {
+        "gpu_total_bytes": gpu_total,
+        "baseline_bytes": baseline,
+        "gpu_name": gpu_name,
+        "model_name": model_name,
+        "per_sample": {str(k): v for k, v in per_sample.items()},
+        "profiled_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+
+def _load_or_create_profile(model, cfg: Config | None = None) -> dict:
+    """Load cached GPU profile or run profiling."""
+    import torch
+
+    if not torch.cuda.is_available():
+        return {}
+
+    device = next(model.parameters() if hasattr(model, "parameters")
+                  else model[0].parameters()).device
+    if device.type != "cuda":
+        return {}
+
+    gpu_name = torch.cuda.get_device_properties(device).name
+    model_name = cfg.embed.model if cfg is not None else "Qwen/Qwen3-Embedding-0.6B"
+    cache_key = _profile_cache_key(model_name, gpu_name)
+
+    # Try loading from disk
+    if _GPU_PROFILE_FILE.exists():
+        try:
+            all_profiles = json.loads(_GPU_PROFILE_FILE.read_text("utf-8"))
+            if cache_key in all_profiles:
+                _log.debug("[gpu-profile] loaded cached profile for %s", cache_key)
+                return all_profiles[cache_key]
+        except Exception:
+            pass
+
+    # Run profiling
+    profile = _run_profile(model, cfg)
+    if not profile:
+        return {}
+
+    # Save to disk
+    _GPU_PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    all_profiles = {}
+    if _GPU_PROFILE_FILE.exists():
+        try:
+            all_profiles = json.loads(_GPU_PROFILE_FILE.read_text("utf-8"))
+        except Exception:
+            pass
+    all_profiles[cache_key] = profile
+    _GPU_PROFILE_FILE.write_text(
+        json.dumps(all_profiles, indent=2, ensure_ascii=False) + "\n", "utf-8"
+    )
+    _log.info("[gpu-profile] saved profile to %s", _GPU_PROFILE_FILE)
+    return profile
+
+
+def _estimate_mem_per_sample(est_tokens: int, profile: dict) -> int:
+    """Interpolate/extrapolate memory per sample from profile data.
+
+    For sequence lengths beyond the profiled range, extrapolates using
+    quadratic scaling (attention is O(n²)).
+    """
+    per_sample = profile.get("per_sample", {})
+    if not per_sample:
+        return 0
+
+    # Convert keys to int, sort
+    points = sorted((int(k), v) for k, v in per_sample.items())
+
+    if est_tokens <= points[0][0]:
+        return points[0][1]
+
+    # Linear interpolation within profiled range
+    for i in range(len(points) - 1):
+        t0, m0 = points[i]
+        t1, m1 = points[i + 1]
+        if t0 <= est_tokens <= t1:
+            frac = (est_tokens - t0) / (t1 - t0)
+            return int(m0 + frac * (m1 - m0))
+
+    # Extrapolate beyond max profiled point with quadratic scaling
+    t_max, m_max = points[-1]
+    ratio = est_tokens / t_max
+    return int(m_max * ratio * ratio)
+
+
+def _compute_batch_size(est_tokens: int, profile: dict,
+                        safety_factor: float = 0.85) -> int:
+    """Compute optimal batch_size for texts of a given token length.
+
+    Uses incremental memory per sample (peak minus baseline) from the
+    profile, so model weight memory is excluded from the calculation.
+    """
+    if not profile or not profile.get("per_sample"):
+        return 8  # conservative default
+
+    gpu_total = profile["gpu_total_bytes"]
+    baseline = profile.get("baseline_bytes", 0)
+    mem_per_sample = _estimate_mem_per_sample(est_tokens, profile)
+
+    if mem_per_sample <= 0:
+        return 8
+
+    # Available = total GPU memory * safety - baseline (model weights etc.)
+    available = gpu_total * safety_factor - baseline
+    if available <= 0:
+        return 1
+
+    bs = int(available / mem_per_sample)
+    return max(1, min(bs, 128))
+
+
 def _embed_text(text: str, cfg: Config | None = None) -> list[float]:
     model = _load_model(cfg)
     vec = model.encode([text], prompt_name="query", normalize_embeddings=True)
@@ -152,9 +350,89 @@ def _embed_text(text: str, cfg: Config | None = None) -> list[float]:
 
 
 def _embed_batch(texts: list[str], cfg: Config | None = None) -> list[list[float]]:
+    """Embed texts with adaptive GPU batch sizing.
+
+    Sorts texts by estimated token count, groups them into buckets of
+    similar length, and computes an optimal batch_size per bucket based
+    on a one-time GPU memory profile.  Falls back to halving the batch
+    (and ultimately CPU) on OOM.
+    """
+    import numpy as np
+
     model = _load_model(cfg)
-    vecs = model.encode(texts, normalize_embeddings=True, batch_size=16)
-    return vecs.tolist()
+    profile = _load_or_create_profile(model, cfg)
+
+    if not profile:
+        # CPU path or profiling unavailable — use conservative fixed batch
+        vecs = model.encode(texts, normalize_embeddings=True, batch_size=8,
+                            show_progress_bar=len(texts) > 100)
+        return vecs.tolist()
+
+    # Estimate token count per text (~3.5 chars per token for mixed text)
+    tokenizer = model.tokenizer
+    # Fast estimation: use tokenizer on a sample, calibrate ratio
+    est_tokens = []
+    for t in texts:
+        # Approximate: tokenizer.encode is fast enough for length estimation
+        est_tokens.append(len(tokenizer.encode(t)))
+
+    # Build indexed list and sort by token count
+    indexed = sorted(enumerate(texts), key=lambda x: est_tokens[x[0]])
+
+    # Group into buckets by similar token length
+    # Bucket boundaries: powers of 2 from 64 to model max
+    boundaries = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+    buckets: dict[int, list[int]] = {}  # boundary -> list of original indices
+
+    for orig_idx, _text in indexed:
+        tlen = est_tokens[orig_idx]
+        # Find the smallest boundary >= tlen
+        bucket_key = boundaries[-1]
+        for b in boundaries:
+            if tlen <= b:
+                bucket_key = b
+                break
+        buckets.setdefault(bucket_key, []).append(orig_idx)
+
+    # Encode each bucket with adaptive batch_size
+    import torch
+
+    results = [None] * len(texts)
+    total_done = 0
+    show_progress = len(texts) > 100
+
+    for bucket_key in sorted(buckets.keys()):
+        indices = buckets[bucket_key]
+        bucket_texts = [texts[i] for i in indices]
+        bs = _compute_batch_size(bucket_key, profile)
+
+        _log.debug("[embed] bucket tokens<=%d: %d texts, batch_size=%d",
+                   bucket_key, len(bucket_texts), bs)
+
+        # Encode with OOM retry
+        encoded = None
+        while encoded is None:
+            try:
+                encoded = model.encode(bucket_texts, normalize_embeddings=True,
+                                       batch_size=bs)
+            except torch.cuda.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                if bs > 1:
+                    bs = max(1, bs // 2)
+                    _log.warning("[embed] OOM, retrying with batch_size=%d", bs)
+                else:
+                    _log.warning("[embed] OOM at batch_size=1, falling back to CPU")
+                    model_cpu = model.to("cpu")
+                    encoded = model_cpu.encode(bucket_texts,
+                                               normalize_embeddings=True,
+                                               batch_size=1)
+                    model.to("cuda")
+
+        for idx, vec in zip(indices, encoded):
+            results[idx] = vec.tolist() if hasattr(vec, "tolist") else list(vec)
+        total_done += len(indices)
+
+    return results
 
 
 class QwenEmbedder:

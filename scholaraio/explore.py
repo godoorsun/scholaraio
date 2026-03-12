@@ -440,15 +440,15 @@ def build_explore_vectors(name: str, *, rebuild: bool = False, cfg: Config | Non
 
         _log.info("Embedding %d papers...", len(to_embed))
 
-        batch_size = 64
+        chunk_size = 256  # DB commit chunk; GPU batching is adaptive inside _embed_batch
         total = 0
         all_new_ids: list[str] = []
         all_new_vecs: list[list[float]] = []
-        for i in range(0, len(to_embed), batch_size):
-            batch = to_embed[i:i + batch_size]
-            texts = [t for _, t in batch]
+        for i in range(0, len(to_embed), chunk_size):
+            chunk = to_embed[i:i + chunk_size]
+            texts = [t for _, t in chunk]
             vecs = _embed_batch(texts, cfg)
-            for (pid, _), vec in zip(batch, vecs):
+            for (pid, _), vec in zip(chunk, vecs):
                 blob = _pack(vec)
                 conn.execute(
                     "INSERT OR REPLACE INTO paper_vectors "
@@ -457,9 +457,8 @@ def build_explore_vectors(name: str, *, rebuild: bool = False, cfg: Config | Non
                 )
                 all_new_ids.append(pid)
                 all_new_vecs.append(vec)
-            total += len(batch)
-            if total % (batch_size * 10) == 0 or i + batch_size >= len(to_embed):
-                _log.info("Progress: %d/%d", total, len(to_embed))
+            total += len(chunk)
+            _log.info("Progress: %d/%d", total, len(to_embed))
 
         conn.commit()
     finally:
