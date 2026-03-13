@@ -463,7 +463,8 @@ paths:
   index_db: data/index.db
 
 # LLM backend (multi-provider support)
-# API key: set in config.local.yaml or env var (DEEPSEEK/OPENAI/ANTHROPIC/GOOGLE_API_KEY)
+# API key: set in config.local.yaml or env var
+#   DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / GOOGLE_API_KEY / GEMINI_API_KEY
 llm:
   backend: openai-compat   # openai-compat | anthropic | google
   model: deepseek-chat

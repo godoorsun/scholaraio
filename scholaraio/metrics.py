@@ -535,7 +535,12 @@ def _call_anthropic(
     """Anthropic Messages API（/v1/messages）。"""
     url = llm_cfg.base_url.rstrip("/") + "/v1/messages"
 
-    messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
+    # Anthropic has no response_format; enforce JSON via prompt prefix
+    user_content = prompt
+    if json_mode:
+        user_content = "You MUST respond with valid JSON only. No markdown fencing, no explanation.\n\n" + prompt
+
+    messages: list[dict[str, str]] = [{"role": "user", "content": user_content}]
 
     payload: dict[str, Any] = {
         "model": llm_cfg.model,
@@ -545,7 +550,6 @@ def _call_anthropic(
     }
     if system:
         payload["system"] = system
-    # Anthropic does not have response_format; json_mode is handled via prompt
 
     headers = {
         "x-api-key": api_key,
@@ -556,11 +560,16 @@ def _call_anthropic(
     resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
+    # Concatenate all text blocks (Messages API can return multiple content blocks)
     try:
-        content = data["content"][0]["text"]
-    except (KeyError, IndexError, TypeError) as e:
+        blocks = data["content"]
+        content = "".join(b["text"] for b in blocks if b.get("type") == "text")
+    except (KeyError, TypeError) as e:
         snippet = _json.dumps(data, ensure_ascii=False)[:300]
         raise ValueError(f"Unexpected Anthropic response structure: {e}\n{snippet}") from e
+    if not content:
+        snippet = _json.dumps(data, ensure_ascii=False)[:300]
+        raise ValueError(f"Anthropic response has no text blocks:\n{snippet}")
     usage = data.get("usage") or {}
     tokens_in = usage.get("input_tokens", 0)
     tokens_out = usage.get("output_tokens", 0)
@@ -581,13 +590,11 @@ def _call_google(
 ) -> tuple[str, int, int, int, str]:
     """Google Gemini API（/v1beta/models/...）。"""
     base = llm_cfg.base_url.rstrip("/")
-    url = f"{base}/v1beta/models/{llm_cfg.model}:generateContent?key={api_key}"
+    url = f"{base}/v1beta/models/{llm_cfg.model}:generateContent"
 
-    contents: list[dict[str, Any]] = []
-    if system:
-        contents.append({"role": "user", "parts": [{"text": system}]})
-        contents.append({"role": "model", "parts": [{"text": "Understood."}]})
-    contents.append({"role": "user", "parts": [{"text": prompt}]})
+    contents: list[dict[str, Any]] = [
+        {"role": "user", "parts": [{"text": prompt}]},
+    ]
 
     payload: dict[str, Any] = {
         "contents": contents,
@@ -596,10 +603,15 @@ def _call_google(
             "maxOutputTokens": max_tokens,
         },
     }
+    if system:
+        payload["systemInstruction"] = {"parts": [{"text": system}]}
     if json_mode:
         payload["generationConfig"]["responseMimeType"] = "application/json"
 
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+    }
 
     resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
     resp.raise_for_status()
