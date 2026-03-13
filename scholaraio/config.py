@@ -58,6 +58,7 @@ class LLMConfig:
         timeout: 普通 LLM 调用超时（秒）。
         timeout_toc: enrich-toc 调用超时（秒），标题列表较长。
         timeout_clean: validate_and_clean 调用超时（秒），结论全文较长。
+        concurrency: enrich pipeline 最大并发 LLM 调用数。
     """
 
     backend: str = "openai-compat"
