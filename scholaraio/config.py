@@ -16,8 +16,10 @@ config.py — ScholarAIO 配置加载
 LLM API key 查找顺序：
   1. config.local.yaml 中的 llm.api_key
   2. 环境变量 SCHOLARAIO_LLM_API_KEY
-  3. 环境变量 DEEPSEEK_API_KEY（默认后端兼容）
-  4. 环境变量 OPENAI_API_KEY（OpenAI 兼容后端）
+  3. 按 llm.backend 查找对应厂商环境变量，例如：
+       - openai-compat: DEEPSEEK_API_KEY → OPENAI_API_KEY
+       - anthropic: ANTHROPIC_API_KEY
+       - google: GOOGLE_API_KEY → GEMINI_API_KEY
 """
 
 from __future__ import annotations
