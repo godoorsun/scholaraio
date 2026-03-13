@@ -35,6 +35,26 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger(__name__)
 
+# Paper types for which L3 conclusion extraction is skipped.
+# These long-form or non-article documents don't have a standard
+# conclusion section suitable for the current extraction strategy.
+L3_SKIP_TYPES = frozenset(
+    {
+        "thesis",
+        "dissertation",
+        "book",
+        "monograph",
+        "edited-book",
+        "reference-book",
+        "book-chapter",
+        "book-section",
+        "book-part",
+        "document",
+        "technical-report",
+        "lecture-notes",
+    }
+)
+
 
 # ============================================================================
 #  Public load functions (L1–L4)
@@ -228,6 +248,18 @@ def enrich_l3(
 
     paper_d = json_path.parent
     data = read_meta(paper_d)
+
+    # Skip L3 for non-article types (thesis, book, document, etc.)
+    paper_type = (data.get("paper_type") or "").lower().strip()
+    if paper_type in L3_SKIP_TYPES:
+        if data.get("l3_extraction_method") == "skipped":
+            return True  # already marked, idempotent
+        _log.debug("skipping L3 for paper_type=%s: %s", paper_type, paper_d.name)
+        data.pop("l3_conclusion", None)  # clear stale conclusion if any
+        data["l3_extraction_method"] = "skipped"
+        data["l3_extracted_at"] = datetime.now().isoformat(timespec="seconds")
+        write_meta(paper_d, data)
+        return True
 
     if data.get("l3_conclusion") and not force:
         _log.debug("existing L3 (method: %s), skipping", data.get("l3_extraction_method", "?"))

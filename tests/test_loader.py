@@ -8,8 +8,14 @@ layers that require LLM enrichment or full-text paper files.
 from __future__ import annotations
 
 import json
+from typing import cast
 
-from scholaraio.loader import load_l1, load_l2
+from scholaraio.config import Config
+from scholaraio.loader import L3_SKIP_TYPES, enrich_l3, load_l1, load_l2
+
+# enrich_l3 requires a Config argument but the skip-by-type branch
+# returns before it is used.  We use a typed sentinel so mypy is happy.
+_UNUSED_CONFIG = cast(Config, None)
 
 
 class TestLoadL1:
@@ -53,3 +59,42 @@ class TestLoadL2:
 
         result = load_l2(d / "meta.json")
         assert "No abstract" in result
+
+
+class TestEnrichL3Skip:
+    """enrich_l3 skips non-article paper types and writes a marker."""
+
+    def test_skips_thesis(self, tmp_papers):
+        """Thesis paper_type should be skipped without any LLM call."""
+        json_path = tmp_papers / "Wang-2024-DeepLearning" / "meta.json"
+        md_path = json_path.parent / "paper.md"
+
+        # config=_UNUSED_CONFIG is fine because the skip happens before config is used
+        result = enrich_l3(json_path, md_path, config=_UNUSED_CONFIG)
+
+        assert result is True
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        assert data["l3_extraction_method"] == "skipped"
+        assert "l3_extracted_at" in data
+        assert "l3_conclusion" not in data
+
+    def test_skips_book(self, tmp_path):
+        """Book paper_type should be skipped."""
+        d = tmp_path / "Author-2020-Handbook"
+        d.mkdir(parents=True)
+        (d / "meta.json").write_text(
+            json.dumps({"id": "book-1", "paper_type": "book"}),
+            encoding="utf-8",
+        )
+        (d / "paper.md").write_text("# Handbook\n\nContent.", encoding="utf-8")
+
+        result = enrich_l3(d / "meta.json", d / "paper.md", config=_UNUSED_CONFIG)
+
+        assert result is True
+        data = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        assert data["l3_extraction_method"] == "skipped"
+
+    def test_skip_types_coverage(self):
+        """All documented skip types are present in the set."""
+        for t in ("thesis", "book", "monograph", "document", "dissertation"):
+            assert t in L3_SKIP_TYPES
