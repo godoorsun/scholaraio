@@ -59,7 +59,6 @@ diagram.to_png('workspace/pipeline.png')
 ```python
 from mermaid import Mermaid
 from mermaid.graph import Graph
-import base64, requests
 
 mermaid_code = """
 sequenceDiagram
@@ -122,58 +121,100 @@ gantt
 pip install cli-anything-inkscape
 ```
 
-### 基本工作流
+### 重要：使用 Python API（推荐）
 
-```bash
-# 1. 新建文档
-inkscape-cli document new workspace/figure.svg --width 800 --height 600
-
-# 2. 添加图形元素
-inkscape-cli shape add-rect workspace/figure.svg --x 50 --y 50 --width 200 --height 100
-inkscape-cli text add workspace/figure.svg --text "实验组A" --x 100 --y 95
-inkscape-cli style set-fill workspace/figure.svg --id rect1 --color "#4A90D9"
-
-# 3. 添加渐变
-inkscape-cli gradient add-linear workspace/figure.svg --id grad1 --x1 0 --y1 0 --x2 1 --y2 0
-inkscape-cli gradient apply workspace/figure.svg --element-id rect1 --gradient-id grad1
-
-# 4. 导出
-inkscape-cli document save workspace/figure.svg
-# 导出 PNG：
-inkscape-cli document export workspace/figure.svg --format png --output workspace/figure.png
-```
-
-### Python API 封装（推荐用于复杂图形）
+cli-anything-inkscape 是有状态的（in-memory session）——每次 CLI 调用都是独立进程，状态不会持久化。因此**必须在一个 Python 脚本中完成所有操作**，使用 Python API 直接调用：
 
 ```python
-import subprocess
+from pathlib import Path
+from cli_anything.inkscape.core import (
+    document as doc_mod,
+    shapes as shape_mod,
+    text as text_mod,
+    styles as style_mod,
+    export as export_mod,
+)
 
-def inkscape(svg_path, *cmd_args):
-    """Run inkscape-cli command."""
-    result = subprocess.run(
-        ["python", "-m", "cli.inkscape_cli"] + list(cmd_args) + [svg_path],
-        capture_output=True, text=True
-    )
-    return result
+SVG = Path("workspace/figures/diagram.svg")
+SVG.parent.mkdir(parents=True, exist_ok=True)
 
-# 创建论文配图
-svg = "workspace/experiment_setup.svg"
-inkscape(svg, "document", "new", "--width", "1200", "--height", "800")
-inkscape(svg, "shape", "add-rect", "--x", "100", "--y", "100",
-         "--width", "300", "--height", "200", "--id", "box_a")
-inkscape(svg, "text", "add", "--text", "实验组", "--x", "200", "--y", "195")
-inkscape(svg, "style", "set-fill", "--id", "box_a", "--color", "#2E86AB")
-inkscape(svg, "document", "save")
+# 1. 新建文档
+proj = doc_mod.create_document(width=800, height=500, units='px', background='#ffffff')
+
+# 2. 添加标题文字
+text_mod.add_text(proj, text="实验架构示意图", x=400, y=40,
+                  font_size=22, font_weight='bold', text_anchor='middle', fill='#1a1a2e')
+
+# 3. 添加矩形并着色
+# ⚠️ 重要：set_fill 使用整数索引（对象在 proj['objects'] 中的位置），不是字符串 ID
+shape_mod.add_rect(proj, x=50, y=100, width=170, height=90, rx=8, ry=8)
+idx = len(proj['objects']) - 1          # 当前对象的整数索引
+style_mod.set_fill(proj, idx, '#4A90D9')
+
+# 4. 矩形内添加文字
+text_mod.add_text(proj, text="原始数据", x=135, y=148,
+                  font_size=15, font_weight='bold', text_anchor='middle', fill='#ffffff')
+
+# 5. 添加连接线
+shape_mod.add_line(proj, x1=220, y1=145, x2=300, y2=145)
+idx = len(proj['objects']) - 1
+style_mod.set_stroke(proj, idx, '#555566', width=2.5)
+
+# 6. 导出 SVG（必须显式调用 export，不会自动保存）
+export_mod.export_svg(proj, str(SVG), overwrite=True)
+print(f"已生成: {SVG}")
 ```
 
-### JSON 输出模式（agent 友好）
+### 完整示例：三模块流程图
 
-所有命令支持 `--json` 参数，返回机器可读结果：
+```python
+from pathlib import Path
+from cli_anything.inkscape.core import (
+    document as doc_mod, shapes as shape_mod,
+    text as text_mod, styles as style_mod, export as export_mod,
+)
 
-```bash
-inkscape-cli shape list workspace/figure.svg --json
-# 返回: {"shapes": [{"id": "rect1", "type": "rect", "x": 50, ...}]}
+SVG = Path("workspace/figures/pipeline.svg")
+SVG.parent.mkdir(parents=True, exist_ok=True)
+
+proj = doc_mod.create_document(width=800, height=300, units='px', background='#f8f9fa')
+
+# 模块配置
+modules = [
+    {"label": "数据输入", "sub": "Raw Input", "x": 50,  "color": "#4A90D9"},
+    {"label": "处理模型", "sub": "Model",     "x": 315, "color": "#E8A838"},
+    {"label": "输出结果", "sub": "Output",    "x": 580, "color": "#5BAD6F"},
+]
+
+for m in modules:
+    shape_mod.add_rect(proj, x=m["x"], y=100, width=170, height=90, rx=8, ry=8)
+    style_mod.set_fill(proj, len(proj['objects']) - 1, m["color"])
+    text_mod.add_text(proj, text=m["label"], x=m["x"]+85, y=148,
+                      font_size=15, font_weight='bold', text_anchor='middle', fill='#ffffff')
+    text_mod.add_text(proj, text=m["sub"], x=m["x"]+85, y=168,
+                      font_size=10, text_anchor='middle', fill='#e0e0e0')
+
+# 连接箭头
+for x1, x2 in [(220, 315), (485, 580)]:
+    shape_mod.add_line(proj, x1=x1, y1=145, x2=x2, y2=145)
+    style_mod.set_stroke(proj, len(proj['objects']) - 1, '#555566', width=2.5)
+
+export_mod.export_svg(proj, str(SVG), overwrite=True)
+print(f"已生成: {SVG} ({SVG.stat().st_size} bytes)")
 ```
+
+### 支持的元素与 API
+
+| 操作 | 函数 | 注意 |
+|------|------|------|
+| 新建文档 | `doc_mod.create_document(width, height, units, background)` | — |
+| 矩形 | `shape_mod.add_rect(proj, x, y, width, height, rx, ry)` | — |
+| 圆形 | `shape_mod.add_circle(proj, cx, cy, r)` | — |
+| 直线 | `shape_mod.add_line(proj, x1, y1, x2, y2)` | — |
+| 文字 | `text_mod.add_text(proj, text, x, y, font_size, font_weight, text_anchor, fill)` | — |
+| 填充色 | `style_mod.set_fill(proj, idx, color)` | `idx` 为**整数**索引 |
+| 描边 | `style_mod.set_stroke(proj, idx, color, width)` | `idx` 为**整数**索引 |
+| 导出 SVG | `export_mod.export_svg(proj, path, overwrite=True)` | 必须显式调用 |
 
 ---
 
@@ -181,7 +222,7 @@ inkscape-cli shape list workspace/figure.svg --json
 
 1. **判断图表类型**：结构化/逻辑图 → Mermaid；精美配图/示意图 → cli-anything-inkscape
 
-2. **生成代码**：根据用户描述生成 Mermaid 代码或 Inkscape 命令序列
+2. **生成代码**：根据用户描述生成 Mermaid 代码或完整 Python 脚本
 
 3. **输出到 workspace/**：
    ```
@@ -200,7 +241,7 @@ inkscape-cli shape list workspace/figure.svg --json
 → 生成 Mermaid flowchart，输出到 `workspace/figures/research_flow.svg`
 
 用户说："帮我画一个实验装置示意图"
-→ 使用 cli-anything-inkscape 生成 SVG，根据描述添加形状/文字/颜色
+→ 用 cli-anything-inkscape Python API 在单脚本中完成，保存 SVG
 
 用户说："画一个过去10年该领域的发展时间线"
 → 生成 Mermaid gantt 图，包含关键论文/方法里程碑
