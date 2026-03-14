@@ -587,12 +587,12 @@ def build_topics(
 ) -> str:
     """Build or rebuild the BERTopic topic model.
 
-    Requires [topics] dependencies. nr_topics=0 means auto-detect.
+    Requires [topics] dependencies. nr_topics=0 means auto-detect, -1 means no reduction.
 
     Args:
         rebuild: If True, force rebuild. Otherwise load cached model.
         min_topic_size: Minimum cluster size for HDBSCAN.
-        nr_topics: Target number of topics (0 = auto).
+        nr_topics: Target number of topics (0 = auto-detect, -1 = no reduction).
     """
     try:
         from scholaraio.topics import build_topics as _build_topics
@@ -608,7 +608,7 @@ def build_topics(
         if not rebuild and (model_dir / "bertopic_model.pkl").exists():
             model = load_model(model_dir)
         else:
-            nr = None if nr_topics == 0 else nr_topics
+            nr = "auto" if nr_topics == 0 else (None if nr_topics == -1 else nr_topics)
             model = _build_topics(
                 cfg.index_db,
                 cfg.papers_dir,

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-03-14
+
 ### Added
 
 - **Workspace batch add**: `ws add` now supports `--search "<query>"`, `--topic <id>`, and `--all` flags for bulk paper addition, with `--top`/`--year`/`--journal`/`--type` filter support
@@ -14,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **PDF optional dependency**: `pymupdf` declared in `pyproject.toml` as `[pdf]` extra (included in `[full]`), fixing undeclared dependency for long PDF splitting
 - **Subagent information tiers**: T1/T2/T3 architecture documented in CLAUDE.md and AGENTS.md for structured context management
 - **Context management guidance**: Workspace skill and 4 academic writing skills updated with notes.md read/write workflow and large-content delegation guidelines
+
+### Fixed
+
+- **MCP `build_topics`**: `nr_topics=0` now correctly maps to `"auto"` (automatic topic count detection) instead of `None` (no reduction); added `-1` as explicit "no reduction" value
 
 ## [0.1.0] — 2026-03-13
 
