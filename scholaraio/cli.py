@@ -222,7 +222,7 @@ def cmd_show(args: argparse.Namespace, cfg) -> None:
     if store:
         store.record(
             category="read",
-            name=l1.get("paper_id", args.paper_id),
+            name=paper_d.name,  # use dir_name so insights can find the paper
             detail={
                 "layer": args.layer,
                 "title": l1.get("title", ""),
@@ -1629,40 +1629,38 @@ def cmd_insights(args: argparse.Namespace, cfg) -> None:
         ui("  暂无搜索记录")
     ui()
 
-    # 2. 最常阅读论文 Top 10
-    paper_read_counts: Counter = Counter()
+    # 2. 最常阅读论文 Top 10 — count by resolved title to dedup UUID vs dir_name
+    papers_dir = cfg.papers_dir
+    title_read_counts: Counter = Counter()
+    pid_to_title: dict[str, str] = {}
+
     for ev in read_events:
         name = ev.get("name", "")
-        if name:
-            paper_read_counts[name] += 1
-
-    ui("【最常阅读论文 Top 10】")
-    if paper_read_counts:
-        # Try to load titles from meta.json
-        papers_dir = cfg.papers_dir
-        for rank, (pid, cnt) in enumerate(paper_read_counts.most_common(10), 1):
+        if not name:
+            continue
+        if name not in pid_to_title:
             title = ""
-            # Try dir_name first
-            paper_d = papers_dir / pid
-            meta_path = paper_d / "meta.json"
+            # Try dir_name lookup first
+            meta_path = papers_dir / name / "meta.json"
             if meta_path.exists():
                 try:
                     meta = _json.loads(meta_path.read_text("utf-8"))
                     title = meta.get("title", "")
                 except Exception:
                     pass
-            if not title:
-                # Check read event detail for title
-                for ev in read_events:
-                    if ev.get("name") == pid and ev.get("detail"):
-                        try:
-                            d = _json.loads(ev["detail"])
-                            title = d.get("title", "")
-                        except Exception:
-                            pass
-                        if title:
-                            break
-            label = title[:60] if title else pid
+            if not title and ev.get("detail"):
+                try:
+                    d = _json.loads(ev["detail"])
+                    title = d.get("title", "")
+                except Exception:
+                    pass
+            pid_to_title[name] = title or name
+        title_read_counts[pid_to_title[name]] += 1
+
+    ui("【最常阅读论文 Top 10】")
+    if title_read_counts:
+        for rank, (title_key, cnt) in enumerate(title_read_counts.most_common(10), 1):
+            label = title_key[:60]
             ui(f"  {rank:2d}. [{cnt}次] {label}")
     else:
         ui("  暂无阅读记录")
