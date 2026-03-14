@@ -1530,7 +1530,7 @@ def federated_search(
                         placeholders = ",".join("?" * len(arxiv_dois))
                         with sqlite3.connect(str(cfg.index_db)) as conn:
                             rows = conn.execute(
-                                f"SELECT doi FROM papers_registry WHERE doi IN ({placeholders})",
+                                f"SELECT doi FROM papers_registry WHERE LOWER(doi) IN ({placeholders})",
                                 arxiv_dois,
                             ).fetchall()
                         in_lib_dois = {r[0].lower() for r in rows}

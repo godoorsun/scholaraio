@@ -184,21 +184,24 @@ def cmd_search(args: argparse.Namespace, cfg) -> None:
     elapsed = time.monotonic() - t0
     store = get_store()
     if store:
-        store.record(
-            category="search",
-            name="search",
-            duration_s=elapsed,
-            detail={
-                "query": query,
-                "result_count": len(results),
-                "top_dois": [r["doi"] for r in results[:5] if r.get("doi")],
-                "filters": {
-                    "year": args.year,
-                    "journal": args.journal,
-                    "paper_type": getattr(args, "paper_type", None),
+        try:
+            store.record(
+                category="search",
+                name="search",
+                duration_s=elapsed,
+                detail={
+                    "query": query,
+                    "result_count": len(results),
+                    "top_dois": [r["doi"] for r in results[:5] if r.get("doi")],
+                    "filters": {
+                        "year": args.year,
+                        "journal": args.journal,
+                        "paper_type": getattr(args, "paper_type", None),
+                    },
                 },
-            },
-        )
+            )
+        except Exception as _e:
+            _log.debug("metrics record failed: %s", _e)
 
     if not results:
         ui(f'No results for "{query}".')
@@ -226,15 +229,18 @@ def cmd_show(args: argparse.Namespace, cfg) -> None:
 
     def _record_read() -> None:
         if store:
-            store.record(
-                category="read",
-                name=paper_d.name,  # use dir_name so insights can find the paper
-                detail={
-                    "layer": args.layer,
-                    "title": l1.get("title", ""),
-                    "doi": l1.get("doi", ""),
-                },
-            )
+            try:
+                store.record(
+                    category="read",
+                    name=paper_d.name,  # use dir_name so insights can find the paper
+                    detail={
+                        "layer": args.layer,
+                        "title": l1.get("title", ""),
+                        "doi": l1.get("doi", ""),
+                    },
+                )
+            except Exception as _e:
+                _log.debug("metrics record failed: %s", _e)
 
     if args.layer == 1:
         _record_read()
@@ -314,21 +320,24 @@ def cmd_vsearch(args: argparse.Namespace, cfg) -> None:
     elapsed = time.monotonic() - t0
     store = get_store()
     if store:
-        store.record(
-            category="search",
-            name="vsearch",
-            duration_s=elapsed,
-            detail={
-                "query": query,
-                "result_count": len(results),
-                "top_dois": [r["doi"] for r in results[:5] if r.get("doi")],
-                "filters": {
-                    "year": args.year,
-                    "journal": args.journal,
-                    "paper_type": getattr(args, "paper_type", None),
+        try:
+            store.record(
+                category="search",
+                name="vsearch",
+                duration_s=elapsed,
+                detail={
+                    "query": query,
+                    "result_count": len(results),
+                    "top_dois": [r["doi"] for r in results[:5] if r.get("doi")],
+                    "filters": {
+                        "year": args.year,
+                        "journal": args.journal,
+                        "paper_type": getattr(args, "paper_type", None),
+                    },
                 },
-            },
-        )
+            )
+        except Exception as _e:
+            _log.debug("metrics record failed: %s", _e)
 
     if not results:
         ui(f'No results for "{query}".')
@@ -360,21 +369,24 @@ def cmd_usearch(args: argparse.Namespace, cfg) -> None:
     elapsed = time.monotonic() - t0
     store = get_store()
     if store:
-        store.record(
-            category="search",
-            name="usearch",
-            duration_s=elapsed,
-            detail={
-                "query": query,
-                "result_count": len(results),
-                "top_dois": [r["doi"] for r in results[:5] if r.get("doi")],
-                "filters": {
-                    "year": args.year,
-                    "journal": args.journal,
-                    "paper_type": getattr(args, "paper_type", None),
+        try:
+            store.record(
+                category="search",
+                name="usearch",
+                duration_s=elapsed,
+                detail={
+                    "query": query,
+                    "result_count": len(results),
+                    "top_dois": [r["doi"] for r in results[:5] if r.get("doi")],
+                    "filters": {
+                        "year": args.year,
+                        "journal": args.journal,
+                        "paper_type": getattr(args, "paper_type", None),
+                    },
                 },
-            },
-        )
+            )
+        except Exception as _e:
+            _log.debug("metrics record failed: %s", _e)
 
     if not results:
         ui(f'No results for "{query}".')
@@ -1450,7 +1462,7 @@ def _query_dois_for_set(cfg, doi_set: list[str]) -> set[str]:
         placeholders = ",".join("?" * len(doi_set))
         with sqlite3.connect(str(cfg.index_db)) as conn:
             rows = conn.execute(
-                f"SELECT doi FROM papers_registry WHERE doi IN ({placeholders})",
+                f"SELECT doi FROM papers_registry WHERE LOWER(doi) IN ({placeholders})",
                 doi_set,
             ).fetchall()
         return {r[0].lower() for r in rows}
@@ -1502,7 +1514,12 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
                     ui(f"  explore 库 {name} 不存在或未建索引（explore.db 缺失）")
                     ui()
                     continue
-                results = explore_unified_search(name, query, top_k=top_k, cfg=cfg)
+                try:
+                    results = explore_unified_search(name, query, top_k=top_k, cfg=cfg)
+                except Exception as e:
+                    ui(f"  搜索失败: {e}")
+                    ui()
+                    continue
                 if not results:
                     ui("  无结果")
                 else:

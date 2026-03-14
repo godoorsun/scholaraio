@@ -99,6 +99,10 @@ skills:
     path: .claude/skills/metrics
     description: "View LLM token usage, API call timing, and runtime metrics"
 
+  - name: scholaraio/insights
+    path: .claude/skills/insights
+    description: "Analyze research behavior: search hot keywords, most-read papers, reading trends, and semantic neighbor recommendations"
+
   - name: scholaraio/setup
     path: .claude/skills/setup
     description: "Initialize and diagnose the ScholarAIO environment; bilingual EN/ZH setup wizard"
