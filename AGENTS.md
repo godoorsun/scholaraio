@@ -44,12 +44,15 @@ The above are baseline capabilities. Feel free to combine CLI tools and the codi
 
 | Module | Function |
 |--------|----------|
+| `config.py` | Configuration loading (YAML multi-layer override + path resolution + API key lookup) |
+| `papers.py` | Paper path & metadata helpers (paper_dir/iter_paper_dirs/read_meta/write_meta + UUID generation) |
+| `log.py` | Logging initialization (file + console + session tracking) |
 | `ingest/mineru.py` | PDF → MinerU Markdown (cloud API / local) |
 | `ingest/extractor.py` | Metadata extraction (regex / auto / robust / llm — 4 modes) |
 | `ingest/metadata/` | API query completion (Crossref / S2 / OpenAlex), JSON output, file renaming |
 | `ingest/pipeline.py` | Composable ingest pipeline (DOI dedup + pending + external import batch conversion) |
 | `index.py` | FTS5 full-text search + papers_registry + citations graph |
-| `vectors.py` | Qwen3 semantic vectors + FAISS incremental indexing |
+| `vectors.py` | Qwen3 semantic vectors + FAISS incremental indexing + GPU adaptive batch processing |
 | `topics.py` | BERTopic topic modeling + 6 HTML visualizations |
 | `loader.py` | L1-L4 layered loading + enrich_toc + enrich_l3 |
 | `explore.py` | Multi-dimensional literature exploration (OpenAlex multi-filter + FTS5 + semantic + unified search + topics, isolated in `data/explore/`) |
@@ -61,6 +64,7 @@ The above are baseline capabilities. Feel free to combine CLI tools and the codi
 | `mcp_server.py` | MCP server (31 tools) |
 | `setup.py` | Environment detection + setup wizard |
 | `metrics.py` | LLM token usage + API timing |
+| `migrate.py` | Data migration (flat structure → per-directory structure) |
 
 CLI command reference: `scholaraio --help`
 
@@ -102,6 +106,17 @@ import-endnote / import-zotero — External reference manager import (full pipel
        → batch PDF→MD (cloud batch API, batch size: config ingest.mineru_batch_size)
        → abstract backfill + toc + l3 extraction + embed + index
 ```
+
+### GPU Adaptive Batch Processing
+
+The embedding pipeline in `vectors.py` automatically adjusts batch size based on GPU memory:
+
+1. **Initial Profile** (~10s): Starting from 64 tokens, doubles step by step, measuring incremental memory per length until OOM
+2. **Cache Reuse**: Results written to `~/.cache/scholaraio/gpu_profile.json`, keyed by `model_name::GPU_name`; auto-re-profiles when GPU/model changes
+3. **Runtime Bucketing**: Groups texts by token length (64/128/.../16384), interpolates optimal batch_size per bucket from profile
+4. **OOM Fallback**: On OOM, halves batch_size and retries; if bs=1 still OOMs, falls back to CPU
+
+All paths calling `_embed_batch()` (main library embed, explore embed, BERTopic's QwenEmbedder) automatically benefit.
 
 ### Layered Loading Design (L1-L4)
 
@@ -270,6 +285,8 @@ System maintenance:
 
 ## Getting Started
 
+### Local Use (clone repo)
+
 When the project is not yet configured, use `scholaraio setup` to guide the user:
 
 1. **Diagnose**: Run `scholaraio setup check` to see current status
@@ -277,7 +294,45 @@ When the project is not yet configured, use `scholaraio setup` to guide the user
 3. **Configure**: Run `scholaraio setup` interactive wizard (bilingual EN/ZH), auto-creates `config.yaml` + `config.local.yaml`
 4. **Directories**: Auto-created on CLI startup (`ensure_dirs()`), no manual action needed
 
-API key notes:
+You can also use the `/setup` skill to let the agent complete all configuration automatically.
+
+### Plugin Use (skill market / Claude Code plugin)
+
+Users can install ScholarAIO skills in any project via the Claude Code plugin system:
+
+```
+/plugin marketplace add ZimoLiao/scholaraio
+/plugin install scholaraio@scholaraio-marketplace
+```
+
+On first session, a SessionStart hook automatically:
+1. Detects and installs the `scholaraio` Python package
+2. Creates global config `~/.scholaraio/config.yaml`
+3. Creates data directories `~/.scholaraio/data/`
+
+In plugin mode, all data lives under `~/.scholaraio/`:
+
+```
+~/.scholaraio/
+├── config.yaml           # Global config (copied from plugin bundle)
+├── config.local.yaml     # API keys (user-created manually or via setup wizard)
+├── data/
+│   ├── papers/           # Ingested papers
+│   ├── inbox/            # PDFs awaiting ingest
+│   ├── inbox-thesis/     # Theses
+│   ├── inbox-doc/        # Non-paper documents
+│   ├── pending/          # Awaiting confirmation
+│   ├── explore/          # Literature exploration data
+│   ├── topic_model/      # Topic models
+│   ├── index.db          # SQLite index
+│   └── metrics.db        # Call metrics
+└── workspace/            # Workspaces
+```
+
+Skills are invoked with namespace prefix: `/scholaraio:search`, `/scholaraio:show`, etc.
+
+### API Key Notes
+
 - **LLM key** (DeepSeek / OpenAI): Metadata extraction + content enrichment. Without it, falls back to pure regex; enrich unavailable
 - **MinerU key**: PDF → Markdown cloud conversion. Without it, only manual `.md` placement works
 - Embedding model (Qwen3-Embedding-0.6B, ~1.2GB) auto-downloads on first embed/vsearch. International users: set `embed.source` to `huggingface` in `config.yaml`
@@ -304,4 +359,19 @@ This project supports multiple AI coding agents:
 | GitHub Copilot | `.github/copilot-instructions.md` (wrapper → read this file) | — |
 | Cline | `.clinerules` (wrapper → read this file) | `.claude/skills/` (native) |
 
-Skills use the [AgentSkills.io](https://agentskills.io) open standard (`SKILL.md` format). The canonical location is `.claude/skills/`; `.agents/skills/` is a symlink for cross-agent discovery.
+Skills use the [AgentSkills.io](https://agentskills.io) open standard (`SKILL.md` format). The canonical location is `.claude/skills/`; `.agents/skills/` is a symlink for cross-agent discovery; `skills/` is a symlink for Claude Code plugin discovery.
+
+### Plugin Packaging
+
+The project doubles as a Claude Code plugin + marketplace:
+
+```
+.claude-plugin/
+├── plugin.json          # Plugin identity (name/version/description/keywords)
+└── marketplace.json     # Marketplace catalog (used by /plugin marketplace add)
+skills/ → .claude/skills/  # Plugin system skill discovery entry point
+hooks/hooks.json           # SessionStart hook (auto-install deps + create global config)
+scripts/check-deps.sh     # Dependency detection/install script called by hook
+```
+
+Users can install via `/plugin marketplace add ZimoLiao/scholaraio`. Skill markets like SkillsMP auto-index by crawling GitHub for `filename:SKILL.md`.

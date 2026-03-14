@@ -129,33 +129,58 @@ Full config reference → [`config.yaml`](config.yaml)
 <details>
 <summary><strong>CLI command reference</strong></summary>
 
+**Search & Read**
 ```
-scholaraio index              Build FTS5 search index
-scholaraio search QUERY       Keyword search
-scholaraio search-author NAME Search by author
+scholaraio search QUERY       Keyword search (FTS5)
 scholaraio vsearch QUERY      Semantic vector search
 scholaraio usearch QUERY      Unified search (keyword + semantic fusion)
-scholaraio show PAPER         View paper content (L1-L4)
-scholaraio embed              Generate semantic vectors
-scholaraio pipeline           Run ingestion pipeline
-scholaraio explore            Journal exploration (OpenAlex)
-scholaraio topics             BERTopic topic modeling
-scholaraio refs PAPER         View references
-scholaraio citing PAPER       View citing papers
-scholaraio shared-refs A B    Shared references between papers
+scholaraio search-author NAME Search by author
 scholaraio top-cited          Rank by citation count
-scholaraio refetch            Re-fetch citation counts from APIs
-scholaraio export             Export BibTeX
-scholaraio ws                 Workspace management
-scholaraio audit              Data quality audit
-scholaraio repair             Fix metadata
-scholaraio rename             Standardize directory names
+scholaraio show PAPER         View paper content (L1-L4)
+```
+
+**Ingest & Enrich**
+```
+scholaraio pipeline PRESET    Run ingestion pipeline (full|ingest|enrich|reindex)
+scholaraio index              Build FTS5 search index
+scholaraio embed              Generate semantic vectors
 scholaraio enrich-toc         Extract table of contents
 scholaraio enrich-l3          Extract conclusions
 scholaraio backfill-abstract  Backfill missing abstracts
+scholaraio refetch            Re-fetch citation counts from APIs
+```
+
+**Citation Graph**
+```
+scholaraio refs PAPER         View references
+scholaraio citing PAPER       View citing papers
+scholaraio shared-refs A B    Shared references between papers
+```
+
+**Explore & Topics**
+```
+scholaraio explore fetch ...  Literature exploration (OpenAlex multi-filter)
+scholaraio explore search ... Search within an explore library
+scholaraio topics             BERTopic topic modeling
+```
+
+**Import & Export**
+```
 scholaraio import-endnote     Import from Endnote
 scholaraio import-zotero      Import from Zotero
 scholaraio attach-pdf         Attach PDF to existing paper
+scholaraio export bibtex      Export BibTeX
+scholaraio ws init NAME       Create a workspace
+scholaraio ws add NAME PAPER  Add papers to workspace
+scholaraio ws search NAME Q   Search within workspace
+```
+
+**Maintenance**
+```
+scholaraio audit              Data quality audit
+scholaraio repair             Fix metadata
+scholaraio rename             Standardize directory names
+scholaraio migrate-dirs       Migrate legacy directory structure
 scholaraio setup              Setup wizard
 scholaraio metrics            View LLM usage stats
 ```
@@ -165,24 +190,17 @@ scholaraio metrics            View LLM usage stats
 ## Project Structure
 
 ```
-scholaraio/          # Python package
-  cli.py             # CLI entry point (29 subcommands)
-  mcp_server.py      # MCP server (31 tools)
-  ingest/            # PDF parsing + metadata pipeline
-  index.py           # FTS5 full-text search
-  vectors.py         # Qwen3 semantic embeddings + FAISS
-  topics.py          # BERTopic topic modeling
-  loader.py          # L1-L4 layered paper loading
-  explore.py         # OpenAlex journal exploration
-  workspace.py       # Workspace management
-  export.py          # BibTeX export
-  audit.py           # Data quality auditing
+scholaraio/          # Python package — CLI, MCP server, and all core modules
+  ingest/            #   PDF parsing + metadata extraction pipeline
+  sources/           #   Data source adapters (local / Endnote / Zotero)
 
 .claude/skills/      # 22 agent skills (AgentSkills.io format)
 .agents/skills/      # ↑ symlink for cross-agent discovery
 data/papers/         # Your paper library (gitignored)
 data/inbox/          # Drop PDFs here for ingestion
 ```
+
+Full module reference → [`CLAUDE.md`](CLAUDE.md) or [`AGENTS.md`](AGENTS.md)
 
 ## Citation
 

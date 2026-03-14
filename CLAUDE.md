@@ -41,6 +41,9 @@ MinerU 解析的 Markdown 保留了高质量公式（LaTeX）和图片附件（`
 
 | 模块 | 功能 |
 |------|------|
+| `config.py` | 配置加载（YAML 多层覆盖 + 路径解析 + API key 查找） |
+| `papers.py` | 论文路径工具（遍历/构造论文目录 + `meta.json` 读写 + 论文 UUID 生成） |
+| `log.py` | 日志初始化（文件 + 控制台 + 会话追踪） |
 | `ingest/mineru.py` | PDF → MinerU Markdown（云 API / 本地） |
 | `ingest/extractor.py` | 元数据提取（regex / auto / robust / llm 四种模式） |
 | `ingest/metadata/` | API 查询补全（Crossref / S2 / OpenAlex）、JSON 输出、文件重命名 |
@@ -58,6 +61,7 @@ MinerU 解析的 Markdown 保留了高质量公式（LaTeX）和图片附件（`
 | `mcp_server.py` | MCP 服务端（31 tools） |
 | `setup.py` | 环境检测 + 安装向导 |
 | `metrics.py` | LLM token 用量 + API 计时 |
+| `migrate.py` | 数据迁移（扁平结构 → 按目录结构） |
 
 CLI 命令一览：`scholaraio --help`
 
@@ -353,7 +357,7 @@ Skills 安装后以 `/scholaraio:search`、`/scholaraio:show` 等命名空间形
 
 ## 多 Agent 兼容
 
-本项目同时支持多种 AI coding agent。`CLAUDE.md` 是 Claude Code 专用指令，`AGENTS.md` 是面向 Codex / OpenClaw 等其他 agent 的通用指令（内容等价，语言中性）。
+本项目同时支持多种 AI coding agent。`CLAUDE.md` 是 Claude Code 专用指令（中文），`AGENTS.md` 是面向 Codex / OpenClaw 等其他 agent 的通用指令（英文，内容同步）。两者覆盖相同的技术内容，修改一方时需同步另一方。
 
 | Agent | 指令文件 | Skills |
 |-------|---------|--------|
