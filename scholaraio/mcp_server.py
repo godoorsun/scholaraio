@@ -1476,9 +1476,7 @@ def federated_search(
         scope: Comma-separated list of sources: main / explore:NAME / explore:* / arxiv.
         top_k: Maximum results per source (default 10).
     """
-    import xml.etree.ElementTree as ET
-
-    import requests
+    import sqlite3
 
     cfg = _get_cfg()
     scopes = [s.strip() for s in scope.split(",") if s.strip()]
@@ -1518,60 +1516,17 @@ def federated_search(
                     output[f"explore:{name}"] = [{"error": str(e)}]
 
         elif src == "arxiv":
-            arxiv_results = []
-            try:
-                url = "https://export.arxiv.org/api/query"
-                params = {"search_query": f"all:{query}", "max_results": top_k, "sortBy": "relevance"}
-                headers = {"User-Agent": "scholaraio/1.0 (https://github.com/ZimoLiao/scholaraio)"}
-                resp = requests.get(url, params=params, headers=headers, timeout=10)
-                resp.raise_for_status()
-                ns = {
-                    "atom": "http://www.w3.org/2005/Atom",
-                    "arxiv": "http://arxiv.org/schemas/atom",
-                }
-                root = ET.fromstring(resp.text)
-                for entry in root.findall("atom:entry", ns):
-                    title_el = entry.find("atom:title", ns)
-                    title = title_el.text.strip().replace("\n", " ") if title_el is not None else ""
-                    summary_el = entry.find("atom:summary", ns)
-                    abstract = summary_el.text.strip().replace("\n", " ") if summary_el is not None else ""
-                    year = ""
-                    pub_el = entry.find("atom:published", ns)
-                    if pub_el is not None and pub_el.text:
-                        year = pub_el.text[:4]
-                    authors = []
-                    for author_el in entry.findall("atom:author", ns):
-                        name_el = author_el.find("atom:name", ns)
-                        if name_el is not None and name_el.text:
-                            authors.append(name_el.text)
-                    arxiv_id = ""
-                    id_el = entry.find("atom:id", ns)
-                    if id_el is not None and id_el.text:
-                        arxiv_id = id_el.text.strip().split("/abs/")[-1]
-                    doi = ""
-                    doi_el = entry.find("arxiv:doi", ns)
-                    if doi_el is not None and doi_el.text:
-                        doi = doi_el.text.strip()
-                    arxiv_results.append(
-                        {
-                            "title": title,
-                            "authors": authors,
-                            "year": year,
-                            "abstract": abstract,
-                            "arxiv_id": arxiv_id,
-                            "doi": doi,
-                            "in_main_library": False,  # annotated below
-                        }
-                    )
+            from scholaraio.sources.arxiv import search_arxiv
 
+            arxiv_results = search_arxiv(query, top_k)
+            if arxiv_results:
                 # Annotate which results are already in the main library.
                 # Query only the DOIs present in this result set to avoid
                 # loading the entire papers_registry on every call.
                 arxiv_dois = [r["doi"].lower() for r in arxiv_results if r.get("doi")]
+                in_lib_dois: set[str] = set()
                 if arxiv_dois and Path(cfg.index_db).exists():
                     try:
-                        import sqlite3
-
                         placeholders = ",".join("?" * len(arxiv_dois))
                         with sqlite3.connect(str(cfg.index_db)) as conn:
                             rows = conn.execute(
@@ -1579,14 +1534,10 @@ def federated_search(
                                 arxiv_dois,
                             ).fetchall()
                         in_lib_dois = {r[0].lower() for r in rows}
-                        for r in arxiv_results:
-                            if r.get("doi") and r["doi"].lower() in in_lib_dois:
-                                r["in_main_library"] = True
                     except Exception:
                         pass
-
-            except Exception as e:
-                arxiv_results = [{"error": f"arXiv unavailable: {e}"}]
+                for r in arxiv_results:
+                    r["in_main_library"] = bool(r.get("doi") and r["doi"].lower() in in_lib_dois)
             output["arxiv"] = arxiv_results
 
     return json.dumps(output, ensure_ascii=False)

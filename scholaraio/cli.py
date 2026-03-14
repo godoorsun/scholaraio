@@ -223,24 +223,28 @@ def cmd_show(args: argparse.Namespace, cfg) -> None:
     _print_header(l1)
 
     store = get_store()
-    if store:
-        store.record(
-            category="read",
-            name=paper_d.name,  # use dir_name so insights can find the paper
-            detail={
-                "layer": args.layer,
-                "title": l1.get("title", ""),
-                "doi": l1.get("doi", ""),
-            },
-        )
+
+    def _record_read() -> None:
+        if store:
+            store.record(
+                category="read",
+                name=paper_d.name,  # use dir_name so insights can find the paper
+                detail={
+                    "layer": args.layer,
+                    "title": l1.get("title", ""),
+                    "doi": l1.get("doi", ""),
+                },
+            )
 
     if args.layer == 1:
+        _record_read()
         return
 
     if args.layer == 2:
         abstract = load_l2(json_path)
         ui("\n--- Abstract ---\n")
         ui(abstract)
+        _record_read()
         return
 
     if args.layer == 3:
@@ -250,6 +254,7 @@ def cmd_show(args: argparse.Namespace, cfg) -> None:
             sys.exit(1)
         ui("\n--- Conclusion ---\n")
         ui(conclusion)
+        _record_read()
         return
 
     if args.layer == 4:
@@ -258,6 +263,7 @@ def cmd_show(args: argparse.Namespace, cfg) -> None:
             sys.exit(1)
         ui("\n--- Full Text ---\n")
         ui(load_l4(md_path))
+        _record_read()
         return
 
 
@@ -1425,75 +1431,28 @@ def cmd_ws(args: argparse.Namespace, cfg) -> None:
 
 def _search_arxiv(query: str, top_k: int) -> list[dict]:
     """Call arXiv Atom API, return simplified paper dicts."""
-    import xml.etree.ElementTree as ET
+    from scholaraio.sources.arxiv import search_arxiv
 
-    import requests
-
-    url = "https://export.arxiv.org/api/query"
-    params = {"search_query": f"all:{query}", "max_results": top_k, "sortBy": "relevance"}
-    headers = {"User-Agent": "scholaraio/1.0 (https://github.com/ZimoLiao/scholaraio)"}
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=10)
-        resp.raise_for_status()
-    except Exception as e:
-        _log.warning("arXiv API 不可用: %s", e)
-        return []
-
-    ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
-    try:
-        root = ET.fromstring(resp.text)
-    except ET.ParseError as e:
-        _log.warning("arXiv XML 解析失败: %s", e)
-        return []
-
-    results = []
-    for entry in root.findall("atom:entry", ns):
-        title_el = entry.find("atom:title", ns)
-        title = title_el.text.strip().replace("\n", " ") if title_el is not None else ""
-        summary_el = entry.find("atom:summary", ns)
-        abstract = summary_el.text.strip().replace("\n", " ") if summary_el is not None else ""
-        year = ""
-        published_el = entry.find("atom:published", ns)
-        if published_el is not None and published_el.text:
-            year = published_el.text[:4]
-        authors = []
-        for author_el in entry.findall("atom:author", ns):
-            name_el = author_el.find("atom:name", ns)
-            if name_el is not None and name_el.text:
-                authors.append(name_el.text)
-        arxiv_id = ""
-        id_el = entry.find("atom:id", ns)
-        if id_el is not None and id_el.text:
-            arxiv_id = id_el.text.strip().split("/abs/")[-1]
-        # Extract DOI if available
-        doi = ""
-        doi_el = entry.find("arxiv:doi", ns)
-        if doi_el is not None and doi_el.text:
-            doi = doi_el.text.strip()
-        results.append(
-            {
-                "title": title,
-                "authors": authors,
-                "year": year,
-                "abstract": abstract,
-                "arxiv_id": arxiv_id,
-                "doi": doi,
-            }
-        )
-    return results
+    return search_arxiv(query, top_k)
 
 
-def _get_main_library_dois(cfg) -> set[str]:
-    """Return the set of DOIs in the main library (from index.db)."""
+def _query_dois_for_set(cfg, doi_set: list[str]) -> set[str]:
+    """Return the subset of doi_set that exists in the main library (case-insensitive).
+
+    Only queries the specific DOIs requested, so this is O(len(doi_set)) regardless
+    of library size. Returns an empty set if the index DB is missing or on any error.
+    """
     import sqlite3
 
-    db_path = cfg.index_db
-    if not Path(db_path).exists():
+    if not doi_set or not Path(cfg.index_db).exists():
         return set()
     try:
-        conn = sqlite3.connect(str(db_path))
-        rows = conn.execute("SELECT doi FROM papers_registry WHERE doi IS NOT NULL AND doi != ''").fetchall()
-        conn.close()
+        placeholders = ",".join("?" * len(doi_set))
+        with sqlite3.connect(str(cfg.index_db)) as conn:
+            rows = conn.execute(
+                f"SELECT doi FROM papers_registry WHERE doi IN ({placeholders})",
+                doi_set,
+            ).fetchall()
         return {r[0].lower() for r in rows}
     except Exception:
         return set()
@@ -1506,8 +1465,6 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
     scopes = [s.strip() for s in scope_str.split(",") if s.strip()]
 
     ui(f'联邦搜索: "{query}"  scope={scope_str}\n')
-
-    main_dois = _get_main_library_dois(cfg)
 
     for scope in scopes:
         if scope == "main":
@@ -1563,11 +1520,14 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
             if not arxiv_results:
                 ui("  arXiv 不可用或无结果")
             else:
+                # Only query the library for DOIs that actually appear in results
+                arxiv_dois = [r["doi"].lower() for r in arxiv_results if r.get("doi")]
+                in_lib_dois = _query_dois_for_set(cfg, arxiv_dois)
                 for i, r in enumerate(arxiv_results, 1):
                     authors = r.get("authors", [])
                     first = (authors[0] if authors else "?") + (" et al." if len(authors) > 1 else "")
                     doi = r.get("doi", "")
-                    in_lib = doi and doi.lower() in main_dois
+                    in_lib = bool(doi and doi.lower() in in_lib_dois)
                     status = "  [已入库]" if in_lib else ""
                     ui(f"  [{i}] [{r.get('year', '?')}] {r.get('title', '')}{status}")
                     ui(f"       {first} | arxiv:{r.get('arxiv_id', '')}" + (f" | doi:{doi}" if doi else ""))
@@ -1737,7 +1697,14 @@ def cmd_insights(args: argparse.Namespace, cfg) -> None:
     ui("【推荐：你可能还没读过的邻近论文】")
     recent_since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     recent_reads = store.query(category="read", since=recent_since, limit=500)
-    recent_paper_ids = list({ev["name"] for ev in recent_reads if ev.get("name")})
+    # Preserve recency order (store.query returns newest-first); deduplicate while keeping order.
+    _seen: set[str] = set()
+    recent_paper_ids = []
+    for ev in recent_reads:
+        n = ev.get("name")
+        if n and n not in _seen:
+            _seen.add(n)
+            recent_paper_ids.append(n)
 
     if not recent_paper_ids:
         ui("  过去7天无阅读记录，无法推荐")
