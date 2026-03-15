@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [1.1.0] — 2026-03-15
-
 ### Added
 
 - **Office format import**: `inbox-doc/` now accepts `.docx`, `.xlsx`, `.pptx` files; new `step_office_convert` pipeline step converts them to Markdown via MarkItDown before ingestion
