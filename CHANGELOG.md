@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-03-15
+
+### Added
+
+- **Office format import**: `inbox-doc/` now accepts `.docx`, `.xlsx`, `.pptx` files; new `step_office_convert` pipeline step converts them to Markdown via MarkItDown before ingestion
+- **RIS export**: `export ris` outputs RIS format compatible with Zotero, Endnote, and Mendeley (zero dependencies)
+- **Markdown reference list export**: `export markdown` generates formatted reference lists with configurable citation styles (APA, Vancouver, Chicago, MLA); supports ordered/unordered lists
+- **DOCX export**: `export docx` converts any Markdown content to a Word `.docx` file, supporting headings, paragraphs, tables, lists, code blocks, and bold/italic text
+- **Citation styles module** (`citation_styles.py`): manages built-in (APA/Vancouver/Chicago/MLA) and custom citation formats; custom styles loaded from `data/citation_styles/*.py` with path-traversal protection
+- **draw skill** (`.claude/skills/draw/`): generate diagrams (Mermaid flowcharts, sequence diagrams, ER diagrams, Gantt charts, mind maps) and vector graphics (cli-anything-inkscape); outputs to `workspace/figures/`
+- **`[office]` optional dependency group**: `markitdown[docx,pptx,xlsx]` + `python-docx`
+
+### Fixed
+
+- CLI error messages and output text unified to Chinese
+- `citation_styles`: `show_style()`, `list_styles()`, `get_formatter()` error messages Chinese-ified; Google-style docstrings added
+
 ## [1.0.0] — 2026-03-14
 
 ### Added
