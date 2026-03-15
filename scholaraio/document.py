@@ -75,8 +75,8 @@ def inspect_pptx(path: Path) -> str:
         raise ImportError("python-pptx 未安装，请运行: pip install python-pptx")
 
     prs = Presentation(str(path))
-    sw = prs.slide_width / _EMU_PER_INCH
-    sh = prs.slide_height / _EMU_PER_INCH
+    sw = (prs.slide_width or 0) / _EMU_PER_INCH
+    sh = (prs.slide_height or 0) / _EMU_PER_INCH
     total = len(prs.slides)
 
     lines: list[str] = []
@@ -169,7 +169,7 @@ def inspect_pptx(path: Path) -> str:
                         lines.append(f"    font: {', '.join(font_info)}")
 
                 # Estimate text overflow (rough heuristic)
-                est_lines = 0
+                est_lines: float = 0
                 for para in tf.paragraphs:
                     text_len = len(para.text)
                     if text_len == 0:
