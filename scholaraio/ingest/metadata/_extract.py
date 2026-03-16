@@ -18,7 +18,7 @@ from ._models import (
 # ============================================================================
 
 
-def extract_metadata_from_markdown(filepath: Path) -> PaperMetadata:
+def extract_metadata_from_markdown(filepath: Path, *, text: str | None = None) -> PaperMetadata:
     """从 MinerU Markdown 文件头部提取论文元数据（纯正则，不调 API）。
 
     提取字段: title, authors, year, doi, journal。
@@ -26,11 +26,13 @@ def extract_metadata_from_markdown(filepath: Path) -> PaperMetadata:
 
     Args:
         filepath: MinerU 输出的 ``.md`` 文件路径。
+        text: 预读的文件内容。若为 ``None`` 则从 ``filepath`` 读取。
 
     Returns:
         填充后的 :class:`PaperMetadata` 实例（部分字段可能为空）。
     """
-    text = filepath.read_text(encoding="utf-8", errors="replace")
+    if text is None:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
     header_lines = lines[:60]
     header_text = "\n".join(header_lines)

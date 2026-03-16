@@ -1182,11 +1182,17 @@ def run_pipeline(
             step_times: dict[str, float] = {}
 
             # Concurrent execution for papers_steps when LLM-bound steps
-            # (toc, l3) are present. All papers_steps run per-paper inside
-            # _process_one_paper(); different papers execute in parallel.
-            llm_steps = {"toc", "l3"}
+            # (toc, l3, translate) are present. All papers_steps run per-paper
+            # inside _process_one_paper(); different papers execute in parallel.
+            llm_steps = {"toc", "l3", "translate"}
             has_llm_steps = bool(set(papers_steps) & llm_steps)
-            workers = cfg.llm.concurrency if has_llm_steps else 1
+            if has_llm_steps and "translate" in papers_steps:
+                # Use translate-specific concurrency (may differ from general llm.concurrency)
+                workers = cfg.translate.concurrency
+            elif has_llm_steps:
+                workers = cfg.llm.concurrency
+            else:
+                workers = 1
 
             def _process_one_paper(json_path: Path) -> tuple[str, dict[str, float]]:
                 """Process all papers_steps for one paper. Returns (status, timings)."""

@@ -72,6 +72,21 @@ class TestSplitIntoChunks:
         full = "\n\n".join(chunks)
         assert math in full
 
+    def test_inline_math_preserved_intact(self):
+        text = "The result is $\\alpha + \\beta = \\gamma$ which is important."
+        chunks = _split_into_chunks(text, chunk_size=5000)
+        full = "\n\n".join(chunks)
+        assert "$\\alpha + \\beta = \\gamma$" in full
+
+    def test_inline_math_not_split_across_chunks(self):
+        """Inline math should not be broken when hard-splitting oversized text."""
+        formula = "$E = mc^2$"
+        big_text = "Word. " * 80 + formula + " " + "Word. " * 80
+        chunks = _split_into_chunks(big_text, chunk_size=200)
+        # The formula should appear complete in exactly one chunk
+        found = [c for c in chunks if formula in c]
+        assert len(found) == 1
+
     def test_image_preserved_intact(self):
         img = "![Figure 1](images/fig1.png)"
         text = f"Caption above.\n\n{img}\n\nCaption below."

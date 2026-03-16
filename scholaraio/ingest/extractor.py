@@ -70,9 +70,10 @@ class RegexExtractor:
     def extract(self, filepath: Path) -> PaperMetadata:
         from scholaraio.ingest.metadata import extract_metadata_from_markdown
 
-        meta = extract_metadata_from_markdown(filepath)
-        # Reuse first 10k chars for patent check (avoid full re-read)
-        _extract_patent_number_from_file(meta, filepath)
+        # Read file once; pass text to both metadata extraction and patent check
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+        meta = extract_metadata_from_markdown(filepath, text=text)
+        _extract_patent_number(meta, text)
         return meta
 
 
@@ -398,18 +399,6 @@ def _extract_patent_number(meta, text: str) -> None:
     if meta.publication_number and not meta.doi:
         if not meta.paper_type or meta.paper_type in ("", "article"):
             meta.paper_type = "patent"
-
-
-def _extract_patent_number_from_file(meta, filepath: Path) -> None:
-    """Extract patent number reading only the first 10k chars of a file."""
-    if meta.publication_number:
-        return
-    try:
-        with open(filepath, encoding="utf-8", errors="replace") as f:
-            head = f.read(10000)
-        _extract_patent_number(meta, head)
-    except Exception:
-        pass
 
 
 # ============================================================================

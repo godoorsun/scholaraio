@@ -88,9 +88,11 @@ def detect_language(text: str) -> str:
 #  Chunking (preserve markdown structure)
 # ============================================================================
 
-# Combined pattern for protected blocks (code fences, display math, images)
+# Combined pattern for protected blocks (code fences, display/inline math, images).
+# Order matters: display math ($$...$$) must be matched before inline math ($...$)
+# to avoid consuming the opening $$ as two inline $ tokens.
 _PROTECTED_RE = re.compile(
-    r"(```[\s\S]*?```|\$\$[\s\S]*?\$\$|!\[.*?\]\(.*?\))",
+    r"(```[\s\S]*?```|\$\$[\s\S]*?\$\$|(?<!\$)\$(?!\$)(?:[^$\\]|\\.)+\$(?!\$)|!\[.*?\]\(.*?\))",
     re.MULTILINE,
 )
 
