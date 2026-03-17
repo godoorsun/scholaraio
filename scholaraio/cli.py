@@ -283,7 +283,12 @@ def cmd_show(args: argparse.Namespace, cfg) -> None:
             sys.exit(1)
         lang = getattr(args, "lang", None)
         if lang:
+            import re as _re
+
             lang = lang.lower().strip()
+            if not _re.match(r"^[a-z]{2,5}$", lang):
+                ui(f"错误: 无效的语言代码 '{lang}'")
+                sys.exit(1)
             translated_path = md_path.parent / f"paper_{lang}.md"
             if translated_path.exists():
                 ui(f"\n--- Full Text ({lang}) ---\n")

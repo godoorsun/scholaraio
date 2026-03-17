@@ -178,8 +178,8 @@ def _split_into_chunks(text: str, chunk_size: int) -> list[str]:
 
     masked = _PROTECTED_RE.sub(_mask, text)
 
-    # Split on paragraph boundaries
-    paragraphs = re.split(r"\n{2,}", masked)
+    # Split on paragraph boundaries (filter empty strings from leading/trailing blanks)
+    paragraphs = [p for p in re.split(r"\n{2,}", masked) if p.strip()]
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
