@@ -216,12 +216,9 @@ def _fit_bertopic(
     """
 
     from bertopic import BERTopic
-    from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
     from hdbscan import HDBSCAN
     from sklearn.feature_extraction.text import CountVectorizer
     from umap import UMAP
-
-    from scholaraio.vectors import QwenEmbedder
 
     n = len(docs)
     if n_neighbors is None:
@@ -248,18 +245,11 @@ def _fit_bertopic(
         ngram_range=ngram_range,
         min_df=effective_min_df,
     )
-    embedder = QwenEmbedder(cfg)
-    representation_model = [
-        KeyBERTInspired(),
-        MaximalMarginalRelevance(diversity=0.3),
-    ]
-
     topic_model = BERTopic(
-        embedding_model=embedder,
+        embedding_model=None,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
         vectorizer_model=vectorizer_model,
-        representation_model=representation_model,
         nr_topics=nr_topics,
         top_n_words=top_n_words,
         verbose=True,
@@ -276,7 +266,6 @@ def _fit_bertopic(
             docs,
             topics=topics,
             vectorizer_model=vectorizer_model,
-            representation_model=representation_model,
         )
         n_outliers_after = sum(1 for t in topics if t == -1)
         _log.info("Outlier reduction: %d → %d", n_outliers_before, n_outliers_after)

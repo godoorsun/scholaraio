@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Explore literature by fetching papers from OpenAlex with multi-dimensional filters (ISSN, concept, author, institution, keyword, etc.), building local embeddings, running BERTopic clustering, and multi-mode search (semantic/keyword/unified). Data is isolated in data/explore/<name>/. Use when the user wants to survey a journal, explore a research field, analyze an author's output, or do landscape analysis.
+description: Explore literature by fetching papers from OpenAlex or importing local metadata files (CSV/TSV/JSON/JSONL), building local embeddings, running BERTopic clustering, and multi-mode search (semantic/keyword/unified). Data is isolated in data/explore/<name>/. Use when the user wants to survey a journal, archive external metadata-only corpora, explore a research field, analyze an author's output, or do landscape analysis.
 version: 1.0.0
 author: ZimoLiao/scholaraio
 license: MIT
@@ -8,7 +8,7 @@ tags: ["academic", "research", "literature", "discovery", "openalex"]
 ---
 # 多维文献探索
 
-从 OpenAlex 拉取文献（支持多维过滤），本地嵌入 + BERTopic 聚类 + 多模式搜索，用于文献调研。数据与主库完全隔离。
+从 OpenAlex 拉取文献，或从本地 metadata 文件导入文献记录（仅标题/摘要/作者/链接也可），再做本地嵌入 + BERTopic 聚类 + 多模式搜索，用于文献调研和灵感碰撞。数据与主库完全隔离，但可以通过联邦搜索和主库一起检索。
 
 ## 执行逻辑
 
@@ -130,3 +130,56 @@ scholaraio explore info --name <名称>
 
 用户说："我有哪些探索库"
 → 执行 `explore list`（或 `explore info`）
+
+### 导入本地 metadata-only 论文集
+
+当用户手头有一批只有 `title / abstract / authors / download_url` 的记录时，不要强行并入主库；优先创建独立 explore 库。
+
+```bash
+# 一次性导入本地 metadata 文件，并自动构建 explore.db + embedding
+scholaraio explore import --name <名称> --file <records.csv|json|jsonl|tsv>
+
+# 增量追加（按 stable paper_id 去重）
+scholaraio explore import --name <名称> --file <records.csv> --incremental
+
+# 只写 papers.jsonl，稍后再单独建 embedding
+scholaraio explore import --name <名称> --file <records.csv> --no-embed
+scholaraio explore embed --name <名称>
+```
+
+补充规则：
+- 如果源文件放在 `data/inbox/` 下，`explore import` 成功后会自动删除该源文件，避免重复处理
+- 如果源文件在库外其他位置，不会擅自删除
+
+兼容字段：
+- 必需：`title`
+- 推荐：`abstract`、`authors`、`year`、`doi`、`download_url`
+- 常见别名也可用：`paper_title` / `summary` / `author_names` / `url` / `pdf_url` 等
+
+导入后的数据结构：
+- `data/explore/<name>/papers.jsonl`
+- `data/explore/<name>/explore.db`
+- `data/explore/<name>/faiss.index`
+- `data/explore/<name>/faiss_ids.json`
+
+适用场景：
+- 用户有大批 metadata-only 论文，不想污染主库
+- 用户想保留下载链接，供后续人工挑选
+- 用户想让这些记录和主库一起搜索，用来碰撞新想法
+
+### 和主库一起检索
+
+当用户明确想把 explore 库和主库一起检索时，用联邦搜索：
+
+```bash
+# 主库 + 某个 explore 库
+scholaraio fsearch "<查询词>" --scope main,explore:<名称>
+
+# 主库 + 所有 explore 库
+scholaraio fsearch "<查询词>" --scope main,explore:*
+```
+
+联邦搜索的用途：
+- 看某个 idea 在“已入库核心论文”和“外部候选论文”之间怎么碰撞
+- 快速发现 explore 里哪些结果已经在主库中存在
+- 在不把 metadata-only 记录并入主库的前提下，扩大检索面

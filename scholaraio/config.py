@@ -92,18 +92,31 @@ class EmbedConfig:
     """语义向量嵌入配置。
 
     Attributes:
+        backend: 嵌入后端，``"local"`` | ``"openai-compat"``。
         model: Sentence Transformer 模型名称或 HuggingFace ID。
         cache_dir: 本地模型缓存目录。
         device: 推理设备，``"auto"`` | ``"cpu"`` | ``"cuda"``。
         top_k: ``scholaraio vsearch`` 默认返回条数。
         source: 模型下载源，``"modelscope"`` | ``"huggingface"``。
+        api_key: 在线 embedding API key，建议放 config.local.yaml。
+        base_url: 在线 embedding API base URL，支持
+            ``https://host/v1`` 或 ``https://host`` 两种写法。
+        timeout: 在线 embedding 请求超时（秒）。
+        api_concurrency: 在线 embedding 并发请求数。
+        api_batch_size: 单个在线 embedding 请求包含的文本数。
     """
 
+    backend: str = "local"
     model: str = "Qwen/Qwen3-Embedding-0.6B"
     cache_dir: str = "~/.cache/modelscope/hub/models"
     device: str = "auto"
     top_k: int = 10
     source: str = "modelscope"
+    api_key: str = ""
+    base_url: str = "https://api.openai.com/v1"
+    timeout: int = 120
+    api_concurrency: int = 20
+    api_batch_size: int = 32
 
 
 @dataclass
@@ -337,6 +350,25 @@ class Config:
             return self.ingest.mineru_api_key
         return os.environ.get("MINERU_API_KEY", "")
 
+    def resolved_embed_api_key(self) -> str:
+        """按优先级查找在线 embedding API key。
+
+        查找顺序:
+        1. config ``embed.api_key``
+        2. 环境变量 ``SCHOLARAIO_EMBED_API_KEY``
+        3. 环境变量 ``OPENAI_API_KEY``
+
+        Returns:
+            API key 字符串，未找到则返回空字符串。
+        """
+        if self.embed.api_key:
+            return self.embed.api_key
+        for env_var in ("SCHOLARAIO_EMBED_API_KEY", "OPENAI_API_KEY"):
+            val = os.environ.get(env_var, "")
+            if val:
+                return val
+        return ""
+
 
 # ============================================================================
 #  Loading
@@ -448,11 +480,17 @@ def _build_config(data: dict, root: Path) -> Config:
 
     embed_data = data.get("embed", {}) or {}
     embed = EmbedConfig(
+        backend=embed_data.get("backend", "local"),
         model=embed_data.get("model", "Qwen/Qwen3-Embedding-0.6B"),
         cache_dir=embed_data.get("cache_dir", "~/.cache/modelscope/hub/models"),
         device=embed_data.get("device", "auto"),
         top_k=int(embed_data.get("top_k", 10)),
         source=embed_data.get("source", "modelscope"),
+        api_key=embed_data.get("api_key") or "",
+        base_url=embed_data.get("base_url", "https://api.openai.com/v1"),
+        timeout=max(1, int(embed_data.get("timeout", 120))),
+        api_concurrency=max(1, int(embed_data.get("api_concurrency", 20))),
+        api_batch_size=max(1, int(embed_data.get("api_batch_size", 32))),
     )
 
     search_data = data.get("search", {}) or {}

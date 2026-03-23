@@ -47,6 +47,7 @@ class TestBuildConfig:
         cfg = _build_config({}, tmp_path)
         assert cfg.llm.model == "deepseek-chat"
         assert cfg.llm.backend == "openai-compat"
+        assert cfg.embed.backend == "local"
         assert cfg.paths.papers_dir == "data/papers"
         assert cfg.search.top_k == 20
 
@@ -175,6 +176,15 @@ class TestResolvedApiKey:
         cfg = _build_config({}, tmp_path)
         monkeypatch.setenv("MINERU_API_KEY", "mu-env")
         assert cfg.resolved_mineru_api_key() == "mu-env"
+
+    def test_embed_key_from_config(self, tmp_path):
+        cfg = _build_config({"embed": {"api_key": "embed-key"}}, tmp_path)
+        assert cfg.resolved_embed_api_key() == "embed-key"
+
+    def test_embed_key_from_env(self, tmp_path, monkeypatch):
+        cfg = _build_config({}, tmp_path)
+        monkeypatch.setenv("SCHOLARAIO_EMBED_API_KEY", "embed-env")
+        assert cfg.resolved_embed_api_key() == "embed-env"
 
 
 class TestLoadConfig:

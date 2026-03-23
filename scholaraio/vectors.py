@@ -2,7 +2,8 @@
 vectors.py — 向量嵌入与语义检索
 ==================================
 
-使用 Qwen3-Embedding-0.6B（本地 ModelScope 缓存）生成论文向量。
+使用 Qwen3-Embedding-0.6B 生成论文向量。
+支持本地 SentenceTransformer 模型，或 OpenAI-compatible 在线 embedding API。
 嵌入文本 = title + abstract，存入 index.db 的 paper_vectors 表。
 
 用法：
@@ -17,12 +18,16 @@ import hashlib
 import importlib
 import json
 import logging
+import math
 import os
 import sqlite3
 import struct
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import requests
 
 _log = logging.getLogger(__name__)
 
@@ -64,8 +69,108 @@ def _content_hash(title: str, abstract: str) -> str:
 _model_cache: dict = {}  # key: (model_path, device) → SentenceTransformer
 
 
+def _embed_backend(cfg: Config | None = None) -> str:
+    if cfg is None:
+        return "local"
+    backend = (getattr(cfg.embed, "backend", "local") or "local").strip().lower()
+    if backend in {"local", "sentence-transformers"}:
+        return "local"
+    if backend in {"openai-compat", "remote", "api"}:
+        return "openai-compat"
+    raise ValueError(f"不支持的 embedding backend: {backend}")
+
+
+def _normalize_vector(vec: list[float]) -> list[float]:
+    norm = math.sqrt(sum(float(x) * float(x) for x in vec))
+    if norm <= 0:
+        return [float(x) for x in vec]
+    return [float(x) / norm for x in vec]
+
+
+def _normalize_vectors(vecs: list[list[float]]) -> list[list[float]]:
+    return [_normalize_vector(v) for v in vecs]
+
+
+def _embed_api_url(cfg: Config) -> str:
+    base = (cfg.embed.base_url or "").rstrip("/")
+    if not base:
+        raise ValueError("embed.base_url 不能为空（在线 embedding 模式）")
+    return base + "/embeddings" if base.endswith("/v1") else base + "/v1/embeddings"
+
+
+def _embed_batch_openai_compat(texts: list[str], cfg: Config) -> list[list[float]]:
+    if not texts:
+        return []
+
+    api_key = cfg.resolved_embed_api_key()
+    if not api_key:
+        raise ValueError("在线 embedding 缺少 API key，请配置 embed.api_key 或 SCHOLARAIO_EMBED_API_KEY")
+
+    url = _embed_api_url(cfg)
+    timeout = max(1, int(cfg.embed.timeout))
+    batch_size = max(1, int(cfg.embed.api_batch_size))
+    max_workers = max(1, int(cfg.embed.api_concurrency))
+    chunks = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    def _request(batch: list[str]) -> list[list[float]]:
+        payload = {
+            "model": cfg.embed.model,
+            "input": batch,
+            "encoding_format": "float",
+        }
+        resp = requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=timeout,
+            proxies={"http": None, "https": None},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        rows = data.get("data")
+        if not isinstance(rows, list):
+            snippet = json.dumps(data, ensure_ascii=False)[:300]
+            raise ValueError(f"Unexpected embedding API response: {snippet}")
+        ordered = sorted(rows, key=lambda x: x.get("index", 0))
+        vecs = [row.get("embedding") for row in ordered]
+        if any(not isinstance(v, list) for v in vecs):
+            snippet = json.dumps(data, ensure_ascii=False)[:300]
+            raise ValueError(f"Embedding response missing vectors: {snippet}")
+        return _normalize_vectors(vecs)
+
+    _log.info(
+        "[embed] online backend model=%s batches=%d concurrency=%d",
+        cfg.embed.model,
+        len(chunks),
+        min(max_workers, len(chunks)),
+    )
+
+    if len(chunks) == 1:
+        return _request(chunks[0])
+
+    results: list[list[list[float]] | None] = [None] * len(chunks)
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(chunks))) as pool:
+        future_map = {pool.submit(_request, chunk): idx for idx, chunk in enumerate(chunks)}
+        for fut in as_completed(future_map):
+            idx = future_map[fut]
+            results[idx] = fut.result()
+
+    merged: list[list[float]] = []
+    for chunk_vecs in results:
+        if chunk_vecs:
+            merged.extend(chunk_vecs)
+    return merged
+
+
 def _load_model(cfg: Config | None = None):
     """Load SentenceTransformer, using module-level cache to avoid reloading."""
+    if _embed_backend(cfg) != "local":
+        return None
+
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     SentenceTransformer = importlib.import_module("sentence_transformers").SentenceTransformer
 
@@ -342,6 +447,11 @@ def _compute_batch_size(est_tokens: int, profile: dict, safety_factor: float = 0
 
 
 def _embed_text(text: str, cfg: Config | None = None) -> list[float]:
+    if _embed_backend(cfg) == "openai-compat":
+        if cfg is None:
+            raise ValueError("在线 embedding 需要显式传入配置")
+        return _embed_batch_openai_compat([text], cfg)[0]
+
     model = _load_model(cfg)
     vec = model.encode([text], prompt_name="query", normalize_embeddings=True)
     return vec[0].tolist()
@@ -355,6 +465,10 @@ def _embed_batch(texts: list[str], cfg: Config | None = None) -> list[list[float
     on a one-time GPU memory profile.  Falls back to halving the batch
     (and ultimately CPU) on OOM.
     """
+    if _embed_backend(cfg) == "openai-compat":
+        if cfg is None:
+            raise ValueError("在线 embedding 需要显式传入配置")
+        return _embed_batch_openai_compat(texts, cfg)
 
     model = _load_model(cfg)
     profile = _load_or_create_profile(model, cfg)
@@ -427,27 +541,46 @@ def _embed_batch(texts: list[str], cfg: Config | None = None) -> list[list[float
     return results
 
 
-class QwenEmbedder:
-    """BERTopic-compatible embedder wrapping Qwen3 via ``_embed_batch``.
+_qwen_embedder_cls = None
 
-    BERTopic's KeyBERTInspired representation model requires an embedding
-    backend that exposes ``embed_documents`` and ``embed_words`` methods.
-    This class provides that interface.
 
-    Args:
-        cfg: Optional Config (or None) forwarded to ``_embed_batch``.
+def _get_qwen_embedder_cls():
+    """Lazily build the BERTopic-compatible embedder class.
+
+    Importing BERTopic at ``vectors.py`` module import time drags in UMAP/numba,
+    which should not be a hard dependency for regular search commands.
     """
+    global _qwen_embedder_cls
+    if _qwen_embedder_cls is not None:
+        return _qwen_embedder_cls
 
-    def __init__(self, cfg: Config | None = None):
-        self._cfg = cfg
+    from bertopic.backend._base import BaseEmbedder
 
-    def embed_documents(self, documents, verbose=False):
-        import numpy as np
+    class _QwenEmbedder(BaseEmbedder):
+        """BERTopic-compatible embedder wrapping Qwen3 via ``_embed_batch``."""
 
-        return np.array(_embed_batch(documents, self._cfg), dtype="float32")
+        def __init__(self, cfg: Config | None = None):
+            super().__init__()
+            self._cfg = cfg
 
-    def embed_words(self, words, verbose=False):
-        return self.embed_documents(words, verbose)
+        def embed(self, documents, verbose=False):
+            import numpy as np
+
+            return np.array(_embed_batch(documents, self._cfg), dtype="float32")
+
+        def embed_documents(self, documents, verbose=False):
+            return self.embed(documents, verbose)
+
+        def embed_words(self, words, verbose=False):
+            return self.embed(words, verbose)
+
+    _qwen_embedder_cls = _QwenEmbedder
+    return _qwen_embedder_cls
+
+
+def QwenEmbedder(cfg: Config | None = None):
+    """Return a BERTopic-compatible Qwen embedder instance on demand."""
+    return _get_qwen_embedder_cls()(cfg)
 
 
 def _pack(vec: list[float]) -> bytes:

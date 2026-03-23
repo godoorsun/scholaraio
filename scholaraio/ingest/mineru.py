@@ -243,7 +243,7 @@ def convert_pdf(pdf_path: Path, opts: ConvertOptions) -> ConvertResult:
         "return_middle_json": (None, "false"),
         "return_content_list": (None, str(opts.save_content_list).lower()),
         "return_model_output": (None, "false"),
-        "return_images": (None, "false"),
+        "return_images": (None, "true"),
         "start_page_id": (None, str(opts.start_page)),
         "end_page_id": (None, str(opts.end_page)),
     }

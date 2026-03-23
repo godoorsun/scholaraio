@@ -318,7 +318,7 @@ def cmd_show(args: argparse.Namespace, cfg) -> None:
 
 def cmd_embed(args: argparse.Namespace, cfg) -> None:
     try:
-        from scholaraio.vectors import build_vectors
+        from scholaraio.vectors import _embed_backend, build_vectors
     except ImportError as e:
         _check_import_error(e)
 
@@ -329,6 +329,7 @@ def cmd_embed(args: argparse.Namespace, cfg) -> None:
 
     action = "重建向量索引" if args.rebuild else "更新向量索引"
     ui(f"{action}: {papers_dir} -> {cfg.index_db}")
+    ui(f"Embedding backend: {_embed_backend(cfg)} | model: {cfg.embed.model}")
     count = build_vectors(papers_dir, cfg.index_db, rebuild=args.rebuild, cfg=cfg)
     label = "总计" if args.rebuild else "新增"
     ui(f"完成：{label} {count} 条向量。")
@@ -1080,6 +1081,28 @@ def cmd_explore(args: argparse.Namespace, cfg) -> None:
         )
         ui(f"\n已抓取 {total} 篇论文")
 
+    elif action == "import":
+        from scholaraio.explore import build_explore_fts, build_explore_vectors, import_explore
+
+        src_path = Path(args.file).resolve()
+        total = import_explore(
+            args.name,
+            args.file,
+            incremental=getattr(args, "incremental", False),
+            cfg=cfg,
+        )
+        ui(f"\n已导入 {total} 篇本地论文记录")
+        if not getattr(args, "no_embed", False):
+            rebuild = not getattr(args, "incremental", False)
+            n = build_explore_vectors(args.name, rebuild=rebuild, cfg=cfg)
+            build_explore_fts(args.name, rebuild=rebuild, cfg=cfg)
+            ui(f"独立 explore.db 已更新，新增 {n} 条向量嵌入")
+
+        inbox_dir = (cfg._root / "data" / "inbox").resolve()
+        if src_path.is_file() and inbox_dir in src_path.parents:
+            src_path.unlink()
+            ui(f"已清理 inbox 源文件: {src_path}")
+
     elif action == "embed":
         try:
             from scholaraio.explore import build_explore_vectors
@@ -1187,6 +1210,8 @@ def cmd_explore(args: argparse.Namespace, cfg) -> None:
             cite_str = f"  [被引: {cited}]" if cited else ""
             ui(f"[{i}] [{r.get('year', '?')}] {r.get('title', '')}")
             ui(f"     {first} | {r.get('doi', '')}  (分数: {r['score']:.3f}){cite_str}")
+            if r.get("download_url"):
+                ui(f"     下载: {r['download_url']}")
             ui()
 
     elif action == "viz":
@@ -1837,12 +1862,18 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
                 if not results:
                     ui("  无结果")
                 else:
+                    explore_dois = [r["doi"].lower() for r in results if r.get("doi")]
+                    in_lib_dois = _query_dois_for_set(cfg, explore_dois)
                     for i, r in enumerate(results, 1):
                         authors = r.get("authors", [])
                         first = authors[0] if authors else "?"
                         score = r.get("score", 0.0)
-                        ui(f"  [{i}] [{r.get('year', '?')}] {r.get('title', '')}")
+                        in_lib = bool(r.get("doi") and r["doi"].lower() in in_lib_dois)
+                        status = "  [已入库]" if in_lib else ""
+                        ui(f"  [{i}] [{r.get('year', '?')}] {r.get('title', '')}{status}")
                         ui(f"       {first} | 分数: {score:.3f}")
+                        if r.get("download_url"):
+                            ui(f"       下载: {r['download_url']}")
                         ui()
 
         elif scope == "arxiv":
@@ -2871,7 +2902,7 @@ def main() -> None:
     p_repair.add_argument("--dry-run", action="store_true", help="预览，不实际修改")
 
     # --- explore ---
-    p_explore = sub.add_parser("explore", help="期刊全量探索（OpenAlex 拉取 + 嵌入 + 聚类）")
+    p_explore = sub.add_parser("explore", help="探索库管理（OpenAlex 拉取或本地 metadata 导入 + 嵌入 + 聚类）")
     p_explore.set_defaults(func=cmd_explore)
     p_explore_sub = p_explore.add_subparsers(dest="explore_action", required=True)
 
@@ -2889,6 +2920,12 @@ def main() -> None:
     p_ef.add_argument("--year-range", help="年份过滤（如 2020-2025）")
     p_ef.add_argument("--incremental", action="store_true", help="增量更新（追加新论文）")
     p_ef.add_argument("--limit", type=int, default=None, help="最多拉取的论文数量上限（不设则无限）")
+
+    p_ei = p_explore_sub.add_parser("import", help="从本地 CSV/TSV/JSON/JSONL 导入探索库")
+    p_ei.add_argument("--name", required=True, help="探索库名称")
+    p_ei.add_argument("--file", required=True, help="本地 metadata 文件路径")
+    p_ei.add_argument("--incremental", action="store_true", help="增量追加（按 paper_id 去重）")
+    p_ei.add_argument("--no-embed", action="store_true", help="只写入 papers.jsonl，不立即构建 explore.db")
 
     p_ee = p_explore_sub.add_parser("embed", help="为探索库生成语义向量")
     p_ee.add_argument("--name", required=True, help="探索库名称")
@@ -2916,8 +2953,8 @@ def main() -> None:
 
     p_el = p_explore_sub.add_parser("list", help="列出所有探索库")
 
-    p_ei = p_explore_sub.add_parser("info", help="查看探索库信息")
-    p_ei.add_argument("--name", default=None, help="探索库名称（省略列出全部）")
+    p_einfo = p_explore_sub.add_parser("info", help="查看探索库信息")
+    p_einfo.add_argument("--name", default=None, help="探索库名称（省略列出全部）")
 
     # --- export ---
     p_export = sub.add_parser("export", help="导出论文或文档（BibTeX / RIS / Markdown / DOCX）")

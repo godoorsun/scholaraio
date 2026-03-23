@@ -50,7 +50,7 @@ llm:
 # Ingest pipeline 数据入库管道
 ingest:
   extractor: robust # auto | regex | llm | robust
-  mineru_endpoint: http://localhost:8000 # Local MinerU API 本地 MinerU API
+  mineru_endpoint: http://192.168.31.103:8000 # Local MinerU API 本地 MinerU API
   mineru_cloud_url: https://mineru.net/api/v4 # Cloud MinerU API 云端 MinerU API
   mineru_api_key: null # → config.local.yaml or env MINERU_API_KEY
   abstract_llm_mode: verify # off | fallback | verify
@@ -60,11 +60,25 @@ ingest:
 
 # Semantic embeddings 语义向量
 embed:
+  backend: local # local | openai-compat
   model: Qwen/Qwen3-Embedding-0.6B
   cache_dir: ~/.cache/modelscope/hub/models
   device: auto # auto | cpu | cuda
   top_k: 10 # vsearch default results vsearch 默认返回条数
   source: modelscope # modelscope (China) | huggingface (international) 模型下载源
+  api_key: null # → config.local.yaml or env SCHOLARAIO_EMBED_API_KEY
+  base_url: https://api.openai.com/v1 # for online embedding
+  timeout: 120 # online embedding timeout (sec)
+  api_concurrency: 20 # online embedding concurrent requests
+  api_batch_size: 32 # texts per online embedding request
+
+# Online embedding example 在线 embedding 示例:
+# embed:
+#   backend: openai-compat
+#   model: qwen3-embedding-0.6b
+#   base_url: https://aihubmix.com/v1
+#   api_key: null # → config.local.yaml
+#   api_concurrency: 20
 
 search:
   top_k: 20 # FTS5 search default results 关键词搜索默认返回条数
