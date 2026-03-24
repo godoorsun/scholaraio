@@ -172,6 +172,7 @@ class IngestConfig:
         chunk_page_limit: 超长 PDF 自动切分的页数阈值。超过此值的 PDF 在 MinerU
             转换前自动拆分为多个短 PDF，转换后合并为单个 Markdown。
         mineru_batch_size: MinerU 云 API 每批提交文件数上限，默认 20。
+        keep_pdf: 是否在入库后保留原始 PDF，并统一命名为 ``paper.pdf``。
     """
 
     extractor: str = "robust"  # regex | auto | llm | robust
@@ -182,6 +183,7 @@ class IngestConfig:
     contact_email: str = ""
     chunk_page_limit: int = 100  # auto-split PDFs exceeding this page count
     mineru_batch_size: int = 20  # cloud batch size per request
+    keep_pdf: bool = False
 
 
 @dataclass
@@ -476,6 +478,7 @@ def _build_config(data: dict, root: Path) -> Config:
         contact_email=ingest_data.get("contact_email") or "",
         mineru_batch_size=int(ingest_data.get("mineru_batch_size") or 20),
         chunk_page_limit=int(ingest_data.get("chunk_page_limit") or 100),
+        keep_pdf=bool(ingest_data.get("keep_pdf", False)),
     )
 
     embed_data = data.get("embed", {}) or {}

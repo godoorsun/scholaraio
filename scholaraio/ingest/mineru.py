@@ -78,6 +78,8 @@ MinerU 后端选项 (--backend)
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import logging
 import shutil
@@ -293,6 +295,8 @@ def convert_pdf(pdf_path: Path, opts: ConvertOptions) -> ConvertResult:
     md_path.write_text(md_content, encoding="utf-8")
     result.success = True
     result.md_size = len(md_content.encode("utf-8"))
+    if _save_local_images(data, out_dir, pdf_path.stem):
+        _rewrite_md_image_refs(md_path, pdf_path.stem)
 
     # Optionally save content_list JSON
     if opts.save_content_list:
@@ -352,6 +356,132 @@ def _extract_field(data, field_name):
             if isinstance(entry, dict) and field_name in entry:
                 return entry[field_name]
     return data.get(field_name)
+
+
+def _extract_result_entry(data) -> dict | None:
+    """Return the first per-file result entry when available."""
+    if not isinstance(data, dict):
+        return None
+    results = data.get("results")
+    if isinstance(results, dict):
+        for _filename, entry in results.items():
+            if isinstance(entry, dict):
+                return entry
+    return data
+
+
+def _normalize_image_name(raw_name: str | None, idx: int) -> str:
+    """Normalize image filename from API payload."""
+    name = Path(str(raw_name)).name if raw_name else ""
+    if not name:
+        name = f"image_{idx:03d}.png"
+    if "." not in name:
+        name = f"{name}.png"
+    return name
+
+
+def _decode_image_payload(payload) -> bytes | None:
+    """Decode a local MinerU image payload into raw bytes."""
+    if payload is None:
+        return None
+    if isinstance(payload, bytes):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("content", "data", "base64", "bytes", "image"):
+            if key in payload:
+                return _decode_image_payload(payload[key])
+        for key in ("url", "image_url", "src"):
+            url = payload.get(key)
+            if isinstance(url, str) and url:
+                try:
+                    resp = requests.get(url, timeout=120)
+                    if resp.status_code == 200:
+                        return resp.content
+                except requests.RequestException:
+                    return None
+        return None
+    if isinstance(payload, str):
+        text = payload.strip()
+        if not text:
+            return None
+        if text.startswith("http://") or text.startswith("https://"):
+            try:
+                resp = requests.get(text, timeout=120)
+                if resp.status_code == 200:
+                    return resp.content
+            except requests.RequestException:
+                return None
+            return None
+        if text.startswith("data:") and "," in text:
+            _, encoded = text.split(",", 1)
+            try:
+                return base64.b64decode(encoded)
+            except (binascii.Error, ValueError):
+                return None
+        try:
+            return base64.b64decode(text, validate=True)
+        except (binascii.Error, ValueError):
+            return None
+    return None
+
+
+def _save_local_images(data, out_dir: Path, stem: str) -> int:
+    """Persist local MinerU images when the API embeds them in the response."""
+    entry = _extract_result_entry(data)
+    if not isinstance(entry, dict):
+        return 0
+
+    images_field = None
+    for key in ("images", "image_dict", "image_map", "img_map"):
+        value = entry.get(key)
+        if value:
+            images_field = value
+            break
+    if images_field is None:
+        return 0
+
+    items: list[tuple[str | None, object]] = []
+    if isinstance(images_field, dict):
+        items = list(images_field.items())
+    elif isinstance(images_field, list):
+        for idx, item in enumerate(images_field):
+            if isinstance(item, dict):
+                name = item.get("name") or item.get("filename") or item.get("path") or item.get("file_name")
+                items.append((name, item))
+            else:
+                items.append((None, item))
+    else:
+        return 0
+
+    images_dir = out_dir / f"{stem}_images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    saved = 0
+    for idx, (raw_name, payload) in enumerate(items):
+        content = _decode_image_payload(payload)
+        if content is None:
+            continue
+        image_name = _normalize_image_name(raw_name, idx)
+        (images_dir / image_name).write_bytes(content)
+        saved += 1
+
+    if saved == 0:
+        try:
+            images_dir.rmdir()
+        except OSError:
+            pass
+    return saved
+
+
+def _rewrite_md_image_refs(md_path: Path, stem: str) -> None:
+    """Normalize Markdown image paths to the final ``images/`` directory."""
+    if not md_path.exists():
+        return
+    md_text = md_path.read_text(encoding="utf-8")
+    fixed = md_text.replace(f"{stem}_images/", "images/")
+    fixed = fixed.replace(f"{stem}_mineru_images/", "images/")
+    if fixed != md_text:
+        md_path.write_text(fixed, encoding="utf-8")
 
 
 # ============================================================================

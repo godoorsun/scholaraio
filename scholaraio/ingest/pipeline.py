@@ -558,8 +558,13 @@ def step_ingest(ctx: InboxCtx) -> StepResult:
 
     # Update papers_registry immediately so UUID lookup works before rebuild
     _update_registry(ctx.cfg, ctx.meta, paper_d.name)
-
-    _cleanup_inbox(ctx.pdf_path, None, dry_run=False)
+    if ctx.pdf_path and ctx.pdf_path.exists() and getattr(ctx.cfg.ingest, "keep_pdf", False):
+        target_pdf = paper_d / "paper.pdf"
+        if target_pdf.exists():
+            target_pdf.unlink()
+        shutil.move(str(ctx.pdf_path), str(target_pdf))
+    else:
+        _cleanup_inbox(ctx.pdf_path, None, dry_run=False)
     # Clean up original Office source file (DOCX/XLSX/PPTX) if present
     office_src: Path | None = ctx.opts.get("office_path")
     if office_src and office_src.exists():
@@ -1455,7 +1460,7 @@ def batch_convert_pdfs(
                 stats["failed"] += 1
                 continue
 
-            _postprocess_convert(pdir, pdf_path, result)
+            _postprocess_convert(pdir, pdf_path, result, keep_pdf=getattr(cfg.ingest, "keep_pdf", False))
             converted_dirs.append(pdir)
             stats["converted"] += 1
     else:
@@ -1521,10 +1526,17 @@ def batch_convert_pdfs(
                         if fixed != md_text:
                             paper_md.write_text(fixed, encoding="utf-8")
 
-                # Clean up source PDF (keep only markdown)
+                # Clean up or preserve source PDF
                 pdf_path = br.pdf_path
-                if pdf_path.exists() and pdf_path.parent == pdir and pdf_path.name != "paper.pdf":
-                    pdf_path.unlink()
+                if pdf_path.exists() and pdf_path.parent == pdir:
+                    if getattr(cfg.ingest, "keep_pdf", False):
+                        target_pdf = pdir / "paper.pdf"
+                        if pdf_path != target_pdf:
+                            if target_pdf.exists():
+                                target_pdf.unlink()
+                            shutil.move(str(pdf_path), str(target_pdf))
+                    elif pdf_path.name != "paper.pdf":
+                        pdf_path.unlink()
 
                 ui(f"  {pdir.name}: OK")
                 converted_dirs.append(pdir)
@@ -1539,7 +1551,7 @@ def batch_convert_pdfs(
     return stats
 
 
-def _postprocess_convert(pdir: Path, pdf_path: Path, result) -> None:
+def _postprocess_convert(pdir: Path, pdf_path: Path, result, *, keep_pdf: bool = False) -> None:
     """Post-process a single MinerU conversion result in paper_dir."""
     paper_md = pdir / "paper.md"
 
@@ -1559,10 +1571,23 @@ def _postprocess_convert(pdir: Path, pdf_path: Path, result) -> None:
             if target.exists():
                 shutil.rmtree(target)
             img_dir.rename(target)
+    if paper_md.exists():
+        md_text = paper_md.read_text(encoding="utf-8")
+        fixed = md_text.replace(f"{pdf_path.stem}_images/", "images/")
+        fixed = fixed.replace(f"{pdf_path.stem}_mineru_images/", "images/")
+        if fixed != md_text:
+            paper_md.write_text(fixed, encoding="utf-8")
 
-    # Clean up source PDF
-    if pdf_path.exists() and pdf_path.name != "paper.pdf":
-        pdf_path.unlink()
+    # Clean up or preserve source PDF
+    if pdf_path.exists():
+        if keep_pdf:
+            target_pdf = pdir / "paper.pdf"
+            if pdf_path != target_pdf:
+                if target_pdf.exists():
+                    target_pdf.unlink()
+                shutil.move(str(pdf_path), str(target_pdf))
+        elif pdf_path.name != "paper.pdf":
+            pdf_path.unlink()
 
 
 def _batch_postprocess(

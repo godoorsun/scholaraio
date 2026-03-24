@@ -122,14 +122,52 @@ def _embed_batch_openai_compat(texts: list[str], cfg: Config) -> list[list[float
             "input": batch,
             "encoding_format": "float",
         }
-        resp = requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            timeout=timeout,
-            proxies={"http": None, "https": None},
-        )
-        resp.raise_for_status()
+        retryable = {408, 429, 500, 502, 503, 504}
+        max_retries = 6
+        resp = None
+        for attempt in range(max_retries + 1):
+            try:
+                resp = requests.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=timeout,
+                    proxies={"http": None, "https": None},
+                )
+                resp.raise_for_status()
+                break
+            except requests.HTTPError:
+                status = resp.status_code if resp is not None else None
+                if status not in retryable or attempt >= max_retries:
+                    raise
+                retry_after = 0.0
+                if resp is not None:
+                    raw = (resp.headers or {}).get("Retry-After", "")
+                    try:
+                        retry_after = float(raw)
+                    except (TypeError, ValueError):
+                        retry_after = 0.0
+                delay = retry_after if retry_after > 0 else min(60.0, 2.0 * (2**attempt))
+                _log.warning(
+                    "[embed] request rate-limited / transient failure (status=%s), retry %d/%d after %.1fs",
+                    status,
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                )
+                time.sleep(delay)
+            except requests.RequestException as exc:
+                if attempt >= max_retries:
+                    raise
+                delay = min(60.0, 2.0 * (2**attempt))
+                _log.warning(
+                    "[embed] request transport error (%s), retry %d/%d after %.1fs",
+                    exc.__class__.__name__,
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                )
+                time.sleep(delay)
         data = resp.json()
         rows = data.get("data")
         if not isinstance(rows, list):

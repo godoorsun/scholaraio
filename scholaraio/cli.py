@@ -1800,8 +1800,9 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
     top_k = _resolve_top(args, 10)
     scope_str = args.scope or "main"
     scopes = [s.strip() for s in scope_str.split(",") if s.strip()] or ["main"]
+    mode = getattr(args, "mode", "semantic") or "semantic"
 
-    ui(f'联邦搜索: "{query}"  scope={scope_str}\n')
+    ui(f'联邦搜索: "{query}"  scope={scope_str}  mode={mode}\n')
 
     for scope in scopes:
         if scope == "main":
@@ -1810,10 +1811,19 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
                 ui("  主库索引不存在，请先运行 scholaraio index")
                 results = []
             else:
-                from scholaraio.index import unified_search
-
                 try:
-                    results = unified_search(query, cfg.index_db, top_k=top_k, cfg=cfg)
+                    if mode == "semantic":
+                        from scholaraio.vectors import vsearch
+
+                        results = vsearch(query, cfg.index_db, top_k=top_k, cfg=cfg)
+                    elif mode == "keyword":
+                        from scholaraio.index import search as keyword_search
+
+                        results = keyword_search(query, cfg.index_db, top_k=top_k, cfg=cfg)
+                    else:
+                        from scholaraio.index import unified_search
+
+                        results = unified_search(query, cfg.index_db, top_k=top_k, cfg=cfg)
                 except Exception as e:
                     ui(f"  主库搜索失败：{e}")
                     results = []
@@ -1821,8 +1831,13 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
                 ui("  无结果")
             else:
                 for i, r in enumerate(results, 1):
-                    score = r.get("score", 0.0)
-                    _print_search_result(i, r, extra=f"{_format_match_tag(r.get('match', '?'))} {score:.3f}")
+                    if mode == "semantic":
+                        _print_search_result(i, r, extra=f"语义 {r.get('score', 0.0):.3f}")
+                    elif mode == "keyword":
+                        _print_search_result(i, r, extra="关键词")
+                    else:
+                        score = r.get("score", 0.0)
+                        _print_search_result(i, r, extra=f"{_format_match_tag(r.get('match', '?'))} {score:.3f}")
             ui()
 
         elif scope.startswith("explore:"):
@@ -1846,7 +1861,12 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
 
             for name in names:
                 ui(f"── [explore: {name}] ──")
-                from scholaraio.explore import explore_db_path, explore_unified_search
+                from scholaraio.explore import (
+                    explore_db_path,
+                    explore_search,
+                    explore_unified_search,
+                    explore_vsearch,
+                )
 
                 db = explore_db_path(name, cfg)
                 if not db.exists():
@@ -1854,7 +1874,12 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
                     ui()
                     continue
                 try:
-                    results = explore_unified_search(name, query, top_k=top_k, cfg=cfg)
+                    if mode == "semantic":
+                        results = explore_vsearch(name, query, top_k=top_k, cfg=cfg)
+                    elif mode == "keyword":
+                        results = explore_search(name, query, top_k=top_k, cfg=cfg)
+                    else:
+                        results = explore_unified_search(name, query, top_k=top_k, cfg=cfg)
                 except Exception as e:
                     ui(f"  搜索失败: {e}")
                     ui()
@@ -1871,7 +1896,12 @@ def cmd_fsearch(args: argparse.Namespace, cfg) -> None:
                         in_lib = bool(r.get("doi") and r["doi"].lower() in in_lib_dois)
                         status = "  [已入库]" if in_lib else ""
                         ui(f"  [{i}] [{r.get('year', '?')}] {r.get('title', '')}{status}")
-                        ui(f"       {first} | 分数: {score:.3f}")
+                        if mode == "semantic":
+                            ui(f"       {first} | 语义分数: {score:.3f}")
+                        elif mode == "keyword":
+                            ui(f"       {first} | 关键词匹配")
+                        else:
+                            ui(f"       {first} | {_format_match_tag(r.get('match', '?'))} {score:.3f}")
                         if r.get("download_url"):
                             ui(f"       下载: {r['download_url']}")
                         ui()
@@ -2532,10 +2562,23 @@ def cmd_attach_pdf(args: argparse.Namespace, cfg) -> None:
             if target.exists():
                 shutil.rmtree(target)
             img_dir.rename(target)
+    if existing_md.exists():
+        md_text = existing_md.read_text(encoding="utf-8")
+        fixed = md_text.replace(f"{dest_pdf.stem}_images/", "images/")
+        fixed = fixed.replace(f"{dest_pdf.stem}_mineru_images/", "images/")
+        if fixed != md_text:
+            existing_md.write_text(fixed, encoding="utf-8")
 
-    # Clean up the copied PDF (we only need the markdown)
-    if dest_pdf.exists() and dest_pdf.name != "paper.pdf":
-        dest_pdf.unlink()
+    # Clean up or preserve the copied PDF
+    if dest_pdf.exists():
+        if getattr(cfg.ingest, "keep_pdf", False):
+            target_pdf = paper_d / "paper.pdf"
+            if dest_pdf != target_pdf:
+                if target_pdf.exists():
+                    target_pdf.unlink()
+                dest_pdf.rename(target_pdf)
+        elif dest_pdf.name != "paper.pdf":
+            dest_pdf.unlink()
 
     ui(f"paper.md 已生成: {paper_d.name}/")
 
@@ -3101,6 +3144,12 @@ def main() -> None:
         type=str,
         default="main",
         help="搜索范围（逗号分隔）：main / explore:NAME / explore:* / arxiv（默认 main）",
+    )
+    p_fsearch.add_argument(
+        "--mode",
+        choices=["semantic", "unified", "keyword"],
+        default="semantic",
+        help="检索模式：semantic=向量优先（默认） / unified=关键词+语义 / keyword=仅关键词",
     )
     p_fsearch.add_argument("--top", type=int, default=None, help="每个来源最多返回 N 条（默认 10）")
 

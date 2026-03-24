@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import math
+import requests
 from unittest.mock import MagicMock, patch
 
 from scholaraio.config import _build_config
 from scholaraio.vectors import _embed_backend, _embed_batch, _embed_text
 
 
-def _fake_response(payload: dict):
+def _fake_response(payload: dict, status_code: int = 200, headers: dict | None = None):
     resp = MagicMock()
-    resp.raise_for_status.return_value = None
+    resp.status_code = status_code
+    resp.headers = headers or {}
+    if status_code >= 400:
+        err = requests.HTTPError(f"{status_code} error")
+        err.response = resp
+        resp.raise_for_status.side_effect = err
+    else:
+        resp.raise_for_status.return_value = None
     resp.json.return_value = payload
     return resp
 
@@ -83,3 +91,29 @@ class TestRemoteEmbeddings:
         assert vecs[1] == [0.0, 1.0]
         assert math.isclose(vecs[2][0], 2**-0.5, rel_tol=1e-6)
         assert math.isclose(vecs[2][1], 2**-0.5, rel_tol=1e-6)
+
+    def test_embed_text_retries_on_429(self, tmp_path):
+        cfg = _build_config(
+            {
+                "embed": {
+                    "backend": "openai-compat",
+                    "api_key": "sk-test",
+                    "base_url": "https://example.com/v1",
+                    "model": "qwen3-embedding-8b",
+                }
+            },
+            tmp_path,
+        )
+
+        responses = [
+            _fake_response({"error": "rate limited"}, status_code=429, headers={"Retry-After": "0"}),
+            _fake_response({"data": [{"index": 0, "embedding": [0.0, 2.0]}]}),
+        ]
+
+        with patch("scholaraio.vectors.requests.post", side_effect=responses) as mock_post:
+            with patch("scholaraio.vectors.time.sleep") as mock_sleep:
+                vec = _embed_text("hello", cfg)
+
+        assert mock_post.call_count == 2
+        assert mock_sleep.called
+        assert vec == [0.0, 1.0]
