@@ -411,6 +411,7 @@ Skills are invoked with namespace prefix: `/scholaraio:search`, `/scholaraio:sho
 
 - **Workspace isolation**: All user output (writing, notes, drafts) goes in the `workspace/` directory. When creating new files (literature reviews, research notes), default to `workspace/`, not the project root or `scholaraio/` source directory
 - **Paper citation presentation in free-form analysis**: When discussing a small set of papers in exploratory or analytical answers, define a short numbered reference list first (for example `[1]`, `[2]`, `[3]`, each mapped once to a paper title/link), then use only the bracketed numbers in the main body. Do not paste long absolute file paths inline in prose unless the user explicitly asks for the path. For larger paper sets, keep the prose numbered and place the mapping table or bibliography in a compact block before or after the main discussion.
+- **Ingest safety**: Do not use ad-hoc local parallel MinerU pre-conversion for normal inbox ingestion. Default to the standard serial `pipeline ingest/full` flow unless the user explicitly asks for a special workflow. When MinerU produces image assets (`*_images` or `*_mineru_images`), they must be moved into the final paper directory and normalized to a plain `images/` folder alongside `paper.md`.
 - **Do not modify `metadata/_extract.py` regex logic** — extend only through the extractor abstraction layer
 - `data/`, `workspace/` are not tracked in git (.gitignore configured)
 - Python 3.10+, runtime environment: conda `scholaraio`

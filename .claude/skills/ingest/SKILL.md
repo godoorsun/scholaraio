@@ -71,6 +71,11 @@ scholaraio pipeline <preset> [--dry-run] [--no-api] [--force] [--inspect]
 
 7. 超长 PDF（>100 页）自动切分为短 PDF 分段转换后合并。
 
+## 执行约束
+
+- 默认不要为了提速而临时拆成“本地并行 MinerU 预转换”再二次入库。除非用户明确要求特殊流程，否则统一使用标准 `pipeline ingest/full`。
+- MinerU 产出的图片资源必须跟正文一起入库。无论中间目录名是 `*_images` 还是 `*_mineru_images`，最终论文目录里都必须规范成单一的 `images/` 文件夹，并与 `paper.md` 中的图片引用保持一致。
+
 ## 示例
 
 用户说："我放了几篇新论文到 inbox，帮我入库"

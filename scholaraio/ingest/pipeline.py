@@ -1901,6 +1901,8 @@ def _find_assets(inbox_dir: Path, asset_prefix: str, md_stem: str) -> tuple[Path
     """
     images_dir = None
     for candidate in [
+        inbox_dir / f"{asset_prefix}_images",
+        inbox_dir / f"{md_stem}_images",
         inbox_dir / f"{asset_prefix}_mineru_images",
         inbox_dir / f"{md_stem}_mineru_images",
         inbox_dir / "images",

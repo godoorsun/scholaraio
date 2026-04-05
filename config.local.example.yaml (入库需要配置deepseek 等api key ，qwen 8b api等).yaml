@@ -25,3 +25,22 @@ ingest:
 zotero:
   api_key: ""
   library_id: ""
+
+# ScholarAIO local configuration (gitignored)
+# 敏感配置，不进入版本控制
+
+llm:
+  api_key: sk-xxxxxxxxxxxxxxxxxxxx
+
+ingest:
+  keep_pdf: true
+
+embed:
+  backend: openai-compat
+  api_key: sk-xxxxxxxxxx
+  base_url: https://api.siliconflow.cn/v1
+  model: Qwen/Qwen3-Embedding-8B
+  api_concurrency: 1
+  api_batch_size: 50
+
+
